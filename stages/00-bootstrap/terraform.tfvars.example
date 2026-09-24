@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and fill in real addresses. terraform.tfvars is
+# gitignored: these are root user identities of real AWS accounts.
+#
+# Pattern: a Gmail "+" alias per account, so one real mailbox covers every
+# account. Gmail delivers user+anything@gmail.com to user@gmail.com, and AWS
+# requires a unique root email per account.
+#
+# Each address must be unique and must still work: AWS sends account
+# verification and password resets there. Getting one wrong means a root user
+# you cannot recover, on an account that takes 90 days to close.
+
+account_emails = {
+  "log-archive" = "you+aws-log-archive@gmail.com"
+  "security"    = "you+aws-security@gmail.com"
+  "network"     = "you+aws-network@gmail.com"
+  "staging"     = "you+aws-staging@gmail.com"
+  "prod"        = "you+aws-prod@gmail.com"
+  "sandbox"     = "you+aws-sandbox@gmail.com"
+}
