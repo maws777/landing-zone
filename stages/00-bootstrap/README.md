@@ -49,12 +49,25 @@ with public access blocked; a shared environment would justify the dollar.
 $env:AWS_PROFILE = "management-admin"
 ```
 
+Terraform doesn't take `--profile`, so this is how it picks the SSO credentials.
+Forget it and Terraform walks the default credential chain and uses whatever it
+finds first.
+
+That's why the provider also has `allowed_account_ids`. It doesn't choose
+credentials, it checks them: before anything else, the provider asks STS which
+account the credentials belong to and stops if it isn't `management_account_id`.
+If you see `AWS account ID not allowed`, you're authenticated to the wrong
+account — check `AWS_PROFILE`, don't debug the config.
+
 ### 1. Import the organization
 
 ```powershell
 terraform init
-terraform plan -target=aws_organizations_organization.this
+terraform plan "-target=aws_organizations_organization.this"
 ```
+
+The quotes matter in PowerShell: unquoted, it splits `-target=a.b` at the dot
+and Terraform receives a broken argument ("Invalid target").
 
 **Read this plan carefully — it's the one genuinely dangerous step in the stage.**
 
@@ -72,12 +85,12 @@ Center trusted access and breaks the only sign-in path into the organization.
 ### 2. Organization, OUs and state bucket
 
 ```powershell
-terraform apply -target=aws_organizations_organization.this `
-                -target=aws_organizations_organizational_unit.security `
-                -target=aws_organizations_organizational_unit.infrastructure `
-                -target=aws_organizations_organizational_unit.workloads `
-                -target=aws_organizations_organizational_unit.sandbox `
-                -target=aws_s3_bucket.state
+terraform apply "-target=aws_organizations_organization.this" `
+                "-target=aws_organizations_organizational_unit.security" `
+                "-target=aws_organizations_organizational_unit.infrastructure" `
+                "-target=aws_organizations_organizational_unit.workloads" `
+                "-target=aws_organizations_organizational_unit.sandbox" `
+                "-target=aws_s3_bucket.state"
 ```
 
 Accounts are held back deliberately — see step 4.

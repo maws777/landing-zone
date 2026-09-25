@@ -4,6 +4,21 @@ variable "region" {
   default     = "eu-west-3"
 }
 
+variable "management_account_id" {
+  description = <<-EOT
+    The management account's 12-digit ID. The provider refuses to run against
+    any other account (see allowed_account_ids in versions.tf).
+
+    Kept in the gitignored terraform.tfvars so the public repo doesn't carry it.
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.management_account_id))
+    error_message = "management_account_id must be exactly 12 digits."
+  }
+}
+
 variable "account_emails" {
   description = <<-EOT
     Root email address per member account, keyed by account name.

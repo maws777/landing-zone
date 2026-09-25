@@ -9,6 +9,10 @@
 # verification and password resets there. Getting one wrong means a root user
 # you cannot recover, on an account that takes 90 days to close.
 
+# The management account's ID. The provider refuses to run against any other
+# account. Find it with: aws sts get-caller-identity --profile management-admin
+management_account_id = "123456789012"
+
 account_emails = {
   "log-archive" = "you+aws-log-archive@gmail.com"
   "security"    = "you+aws-security@gmail.com"

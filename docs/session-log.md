@@ -5,6 +5,55 @@ re-deriving where things stood. Newest session first.
 
 ---
 
+## 2026-09-25 — root key revoked, credentials pinned, org import plan clean
+
+### Done
+
+**Stray root key dealt with, in the right order.** Deleted the access key in the
+old account's root security credentials first. Verified from this machine:
+`aws sts get-caller-identity --profile default` now returns
+`InvalidClientTokenId`, meaning AWS no longer recognises the key. Then deleted
+`~/.aws/credentials` (it held only that `[default]` profile). The machine now
+has no long-lived AWS credentials at all, only the SSO config.
+
+**Bootstrap stage pinned to the management account.** Resolved the open design
+question from last session with `allowed_account_ids = [var.management_account_id]`
+in the provider block, instead of `profile = "management-admin"`.
+
+- The two jobs are separate. `AWS_PROFILE` *chooses* credentials;
+  `allowed_account_ids` *checks* them. The provider calls
+  `sts:GetCallerIdentity` before anything else and stops if the account doesn't
+  match.
+- Not `profile`: that hardcodes a laptop-only name that won't exist in GitHub
+  Actions (OIDC supplies credentials through env vars), and it still wouldn't
+  verify which account the profile points at.
+- Not a hand-written `aws_caller_identity` precondition: more code, and it runs
+  during the plan, after other data sources may already have read from the
+  wrong account.
+- The account ID is in the gitignored `terraform.tfvars`, with a 12-digit
+  validation on the variable.
+
+Tested both ways. With `-var management_account_id=111111111111` the plan
+stops with `AWS account ID not allowed`. With the real ID the plan runs.
+
+**PowerShell gotcha:** unquoted `-target=aws_x.name` is split at the dot and
+Terraform reports `Invalid target`. Quote the whole argument. README commands
+fixed.
+
+### Org import plan: correct
+
+`terraform plan "-target=aws_organizations_organization.this"`:
+`1 to import, 0 to add, 1 to change, 0 to destroy`. The only change adds
+`cloudtrail.amazonaws.com` to `aws_service_access_principals`; `sso.amazonaws.com`
+stays. `feature_set` and `SERVICE_CONTROL_POLICY` already match. Not applied yet.
+
+### Next
+
+Resume at step 2 of the bootstrap sequence below (apply org + OUs + state
+bucket), after confirming the import plan.
+
+---
+
 ## 2026-09-24 / 25 — Day 0 docs written, bootstrap stage written but not applied
 
 ### Done
@@ -125,5 +174,5 @@ Following `stages/00-bootstrap/README.md`:
 5. Apply accounts, then Identity Center assignments.
 6. Add `<account>-admin` CLI profiles.
 
-`stages/` is **not committed yet** — it was written this session and the stage
-has never been applied.
+`stages/` was committed at the end of this session (`76c1473`); the stage has
+never been applied.
