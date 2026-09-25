@@ -47,10 +47,32 @@ fixed.
 `cloudtrail.amazonaws.com` to `aws_service_access_principals`; `sso.amazonaws.com`
 stays. `feature_set` and `SERVICE_CONTROL_POLICY` already match. Not applied yet.
 
+Reviewed and confirmed against the expectations written down last session:
+imported not created, `cloudtrail` added, `sso` untouched, nothing destroyed.
+Pushed as `e008ae6`.
+
+### Applying now: organization import only
+
+Scope is deliberately just `aws_organizations_organization.this`, with no OUs,
+no state bucket and no accounts. The plan is saved with `-out` and applied from
+that file, so exactly the reviewed actions run and nothing that changed in
+between. Stop after this apply.
+
+State is still **local** (`terraform.tfstate` in the stage folder, gitignored)
+until the S3 bucket exists and the migration runs. Don't delete it: it's
+now the only record that Terraform manages the organization.
+
+**Result:** `1 imported, 0 added, 1 changed, 0 destroyed`. Verified outside
+Terraform: `list-aws-service-access-for-organization` returns `cloudtrail` and
+`sso`, and the `management-admin` SSO login still works. A re-plan shows
+`No changes`. `terraform state list` holds only the organization. The plan file
+was deleted after apply (plan files contain account details in plaintext);
+`*.tfplan` is now gitignored.
+
 ### Next
 
-Resume at step 2 of the bootstrap sequence below (apply org + OUs + state
-bucket), after confirming the import plan.
+Step 2 of the bootstrap sequence: plan and apply the four OUs + state bucket,
+then migrate state to S3.
 
 ---
 
