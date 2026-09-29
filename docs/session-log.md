@@ -25,6 +25,7 @@ Read this block first; the entries below have the detail if needed.
 **To start a session**
 
 ```powershell
+git switch main; git pull           # last session ended on branch ci/github-oidc
 aws sso login --profile management-admin
 cd stages/00-bootstrap
 $env:AWS_PROFILE = "management-admin"
@@ -87,7 +88,30 @@ trust policy uses exact `StringEquals` and the first plan run was accepted.
 **Pipeline:** `.github/workflows/terraform.yml`. PR → plan with the plan role;
 push to `main` → apply with the apply role behind the environment gate.
 Actions are pinned by SHA. `01-guardrails` is empty on purpose, so the first
-runs test the chain without changing anything. First PR plan: all green.
+runs test the chain without changing anything.
+
+**End-to-end verified:**
+- PR #1 plan: all green, with the plan role and `…:pull_request` sub.
+- Merge → apply job paused at the environment gate → approved → all green,
+  with the apply role and `…:environment:management` sub.
+- CI wrote its first state file, `stages/01-guardrails/terraform.tfstate`,
+  proving the apply role's `WriteState`. Bootstrap state untouched (last
+  written by the local apply).
+- CloudTrail `AssumeRoleWithWebIdentity` events show the role and the exact
+  `sub` AWS checked (`userIdentity.userName`). The plan event was confirmed;
+  the apply event hadn't appeared yet (event history lags up to ~15 min).
+  Worth a screenshot for the README: it's AWS-side proof of the auth model.
+
+**Interview version:** GitHub Actions deploys through short-lived OIDC
+credentials, with no stored keys. Trust policies are pinned to the repo's
+immutable subject claim. Plans run read-only on PRs. Applies need an
+environment approval that the trust policy itself enforces. The pipeline can't
+widen its own permissions, because its roles live in a stage only a human
+applies.
+
+**Loose ends:** PR #2 (session log only, so no checks: the path filter skips
+docs, as intended) needs merging. Note for later: a *required* check on a
+path-filtered workflow would block docs-only PRs forever.
 
 ### Gotchas
 
