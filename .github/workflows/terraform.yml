@@ -1,0 +1,121 @@
+# Terraform through GitHub Actions, authenticated to AWS with OIDC.
+#
+#   pull request -> plan   (landing-zone-ci-plan, read-only)
+#   push to main -> apply  (landing-zone-ci-apply, behind the `management`
+#                           environment: required reviewer, `main` only)
+#
+# The roles and their trust policies live in stages/00-bootstrap/ci-identity.tf.
+# 00-bootstrap itself never runs here (ADR 0004).
+#
+# Plan output is public on this repo; see ADR 0005 for what that exposes.
+
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - "stages/01-guardrails/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "stages/01-guardrails/**"
+      - ".github/workflows/terraform.yml"
+
+# Default for every job: read the repo, nothing else. Jobs that talk to AWS add
+# id-token: write, which is what lets them request an OIDC token at all.
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+  WORKDIR: stages/01-guardrails
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "0"
+  TF_VAR_management_account_id: ${{ vars.MANAGEMENT_ACCOUNT_ID }}
+
+jobs:
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: ${{ env.WORKDIR }}
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a tag can be moved to new
+      # code, a SHA can't. These jobs hold AWS credentials, so that matters.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Prints the claims AWS will check, never the token itself. If the role
+      # refuses the token, this is the first thing to compare with the trust
+      # policy.
+      - name: Show OIDC claims
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          payload=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')
+          while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
+          printf '%s' "$payload" | base64 -d | jq '{sub, aud, ref, event_name, environment}'
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/ci/landing-zone-ci-plan
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.14.3
+          # The wrapper captures stdout into step outputs; not needed here, and
+          # it makes plan output harder to read in the log.
+          terraform_wrapper: false
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init "-backend-config=bucket=${{ vars.STATE_BUCKET }}"
+      - run: terraform validate -no-color
+      - run: terraform plan -no-color -lock-timeout=5m
+
+  apply:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # This line is what the apply role's trust policy checks for: the OIDC `sub`
+    # becomes ...:environment:management. It also pauses the job until the
+    # environment's required reviewer approves.
+    environment: management
+    # Never two applies at once; queue rather than cancel a running apply.
+    concurrency:
+      group: terraform-apply-01-guardrails
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: ${{ env.WORKDIR }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Show OIDC claims
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          payload=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')
+          while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
+          printf '%s' "$payload" | base64 -d | jq '{sub, aud, ref, event_name, environment}'
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/ci/landing-zone-ci-apply
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.14.3
+          terraform_wrapper: false
+
+      - run: terraform init "-backend-config=bucket=${{ vars.STATE_BUCKET }}"
+      # Plan and apply the same saved file, so exactly what's printed is what runs.
+      - run: terraform plan -no-color -lock-timeout=5m -out=tfplan
+      - run: terraform apply -no-color -lock-timeout=5m tfplan
