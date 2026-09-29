@@ -2,6 +2,7 @@
 *.tfstate
 *.tfstate.*
 terraform.tfvars
+backend.hcl
 *.tfplan
 crash.log
 crash.*.log

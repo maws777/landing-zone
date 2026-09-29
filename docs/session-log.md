@@ -5,7 +5,123 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## 2026-09-25 — root key revoked, credentials pinned, org import plan clean
+## Resume here (updated 2026-09-29, end of session)
+
+Read this block first; the entries below have the detail if needed.
+
+**State of the world: bootstrap stage complete (pillar 1, pre-roadmap).**
+
+- Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
+  `sso` + `cloudtrail`. Feature set ALL, SCP type enabled, **no SCPs yet**.
+- 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
+  `AdministratorAccess` on all of them via Identity Center.
+- Terraform state in **S3** with native locking. Bucket name in gitignored
+  `backend.hcl`. No local state left.
+- CLI profiles `<account>-admin` for all six accounts, sharing the `mteplov`
+  SSO session. One `aws sso login` covers them all.
+- Provider pinned with `allowed_account_ids`; real IDs only in gitignored files.
+- No long-lived AWS credentials anywhere on the machine.
+
+**To start a session**
+
+```powershell
+aws sso login --profile management-admin
+cd stages/00-bootstrap
+$env:AWS_PROFILE = "management-admin"
+terraform init "-backend-config=backend.hcl"   # only on a fresh clone
+terraform plan    # expect: No changes
+```
+
+**Next: roadmap step 1, CI/CD identity (GitHub OIDC).** Start with the parked
+questions below, and the ADR on whether bootstrap runs in CI.
+
+**Gotchas learned**
+
+- PowerShell splits unquoted `-flag=a.b` at the dot → quote it. Applies to
+  `-target=`, `-out=`, `-backend-config=`, anything with a dot in the value.
+- A command that `cd`s leaves the shell there; run git from the repo root.
+- The Organizations quota is only readable in `us-east-1`.
+- Plan files contain account details in plaintext; `*.tfplan` is gitignored,
+  delete after apply anyway.
+
+**Open, not blocking:** whether to keep the `Co-Authored-By: Claude` trailer on
+commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
+
+**Parked for CI/CD (roadmap step 1):** first role applied locally; bootstrap
+local-only vs in CI (ADR); public Actions logs would leak IDs/emails; bucket
+name via `-backend-config` from a GitHub variable. Details in CLAUDE.md step 1.
+
+**Idea parked (2026-09-29): note-taking MCP.** The MCP server could become
+a note tool I write to and search through Claude, including claude.ai on the
+web. That would answer the corpus question. It raises three questions for later
+ADRs: write tools make prompt injection more dangerous (use scoped tokens, no
+hard-delete, keep versions); an always-on tool conflicts with deploying the app
+only for demos (always-on cheap core + demo stack?); and whether I also want my
+own web UI. Details are in CLAUDE.md roadmap step 8. Don't start until the
+landing zone is done.
+
+---
+
+## 2026-09-29 — bootstrap finished: OUs, bucket, state migration, accounts
+
+### Done
+
+**OUs and state bucket.** Targeted plan (9 to add), saved with `-out`,
+applied from the file, file deleted. Verified in AWS independently of
+Terraform: versioning Enabled, AES256, all four public-access-block flags,
+TLS-only bucket policy, four OUs under the root.
+
+**Bug caught in the README before it bit.** The old step 2 targeted only
+`aws_s3_bucket.state`. `-target` pulls in a resource's *dependencies*, not its
+*dependents*. Versioning, encryption, the public access block and the policy
+all reference the bucket, so they'd have been skipped, and state would have
+been migrated into a bare bucket. The README now lists all five bucket
+resources.
+
+**State migrated to S3.** The backend uses a *partial configuration*:
+`backend.tf` (committed) has everything except `bucket`, which comes from the
+gitignored `backend.hcl` via `-backend-config`. That's because the bucket name
+contains the management account ID and the repo is public. The local state was
+backed up first, then `terraform init -migrate-state -force-copy`. Verified:
+`state list` reads from S3, and the bucket holds the state object. The `.tflock`
+object appears only in the version history, meaning the lock was taken and
+released. The re-plan showed exactly the remaining 12 resources. Stale local
+state files deleted afterwards.
+
+**Six accounts + Identity Center assignments.** Quota rechecked (10, 1 used).
+The saved plan showed each account's real OU ID, checked against the mapping.
+Apply: 12 added, accounts took 11–58 s each. Final `terraform plan`: `No changes`.
+
+**CLI profiles.** Six `<account>-admin` blocks in `~/.aws/config`, all
+verified with `get-caller-identity`. Each account's role got a different random
+suffix (`AWSReservedSSO_AdministratorAccess_<suffix>`), confirming that anything
+referencing these roles must use a wildcard, not a literal name.
+
+### Decisions and discussions
+
+- **Admin on every account is deliberate, for now.** One operator, everything
+  still to build, no CI yet. The end state is read-only for humans in prod and
+  log-archive, admin in sandbox, and emergency-only admin elsewhere. The steps
+  that get there: SCPs cap admins (step 2), CI/CD removes the need for human
+  writes (step 1), and a read-only permission set (step 6).
+- **Adding people later** means Identity Center users in their own groups with
+  narrow permission sets, never new accounts and never `admins`. Account root
+  emails are per *account*, not per person; the `+aws-` pattern is only a
+  convenience.
+- **Parked:** CI/CD open questions and the note-taking MCP idea (see Resume
+  block and CLAUDE.md).
+- **Working agreement:** every action now starts with a briefing (where we are
+  in the architecture, what it does, what to remember). Recorded in CLAUDE.md.
+
+### Gotchas
+
+- `-out=x.tfplan` fails the same way `-target=a.b` does in PowerShell ("Too
+  many command line arguments"). Quote any flag whose value contains a dot.
+- `"-chdir=$d"` needs the quotes for PowerShell to expand the variable.
+
+---
+
+## 2026-09-25 — root key revoked, credentials pinned, org import applied
 
 ### Done
 

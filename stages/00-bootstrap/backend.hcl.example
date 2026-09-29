@@ -1,0 +1,4 @@
+# Copy to backend.hcl (gitignored) and fill in the real bucket name from
+# `terraform output state_bucket_name`. Kept out of backend.tf because the
+# name contains the management account ID, and the repo is public.
+bucket = "landing-zone-tfstate-<account-id>"

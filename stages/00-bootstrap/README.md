@@ -85,13 +85,26 @@ Center trusted access and breaks the only sign-in path into the organization.
 ### 2. Organization, OUs and state bucket
 
 ```powershell
-terraform apply "-target=aws_organizations_organization.this" `
-                "-target=aws_organizations_organizational_unit.security" `
-                "-target=aws_organizations_organizational_unit.infrastructure" `
-                "-target=aws_organizations_organizational_unit.workloads" `
-                "-target=aws_organizations_organizational_unit.sandbox" `
-                "-target=aws_s3_bucket.state"
+terraform plan "-out=ous-bucket.tfplan" `
+  "-target=aws_organizations_organization.this" `
+  "-target=aws_organizations_organizational_unit.security" `
+  "-target=aws_organizations_organizational_unit.infrastructure" `
+  "-target=aws_organizations_organizational_unit.workloads" `
+  "-target=aws_organizations_organizational_unit.sandbox" `
+  "-target=aws_s3_bucket.state" `
+  "-target=aws_s3_bucket_versioning.state" `
+  "-target=aws_s3_bucket_server_side_encryption_configuration.state" `
+  "-target=aws_s3_bucket_public_access_block.state" `
+  "-target=aws_s3_bucket_policy.state"
+terraform apply ous-bucket.tfplan
+Remove-Item ous-bucket.tfplan
 ```
+
+Every bucket resource is listed explicitly. `-target` pulls in what a target
+*depends on*, not what depends *on it*: versioning, encryption, the public
+access block and the policy all reference the bucket, so targeting only
+`aws_s3_bucket.state` would create a bare bucket and migrate state into it
+unprotected.
 
 Accounts are held back deliberately — see step 4.
 
@@ -103,7 +116,7 @@ Create `backend.tf`:
 ```hcl
 terraform {
   backend "s3" {
-    bucket       = "landing-zone-tfstate-<account-id>"
+    # bucket comes from backend.hcl, see below
     key          = "stages/00-bootstrap/terraform.tfstate"
     region       = "eu-west-3"
     encrypt      = true
@@ -112,11 +125,20 @@ terraform {
 }
 ```
 
-Get the bucket name from `terraform output state_bucket_name`. Then:
+The bucket name is left out on purpose. It contains the management account
+ID, and `backend.tf` is committed to a public repo. Terraform allows a
+*partial* backend configuration: anything missing from the `backend` block is
+supplied at `init` time. So the name goes in `backend.hcl`, which is gitignored:
 
 ```powershell
-terraform init -migrate-state
+Copy-Item backend.hcl.example backend.hcl
+terraform output state_bucket_name   # put this value in backend.hcl
+terraform init "-backend-config=backend.hcl" -migrate-state
 ```
+
+Terraform stores the merged backend settings in `.terraform/`, so later runs
+only need a plain `terraform init` (or `-backend-config` again on a fresh
+clone).
 
 Terraform notices the backend changed and offers to copy existing state up.
 Answer `yes`. It uploads `terraform.tfstate` to the bucket and stops using the
