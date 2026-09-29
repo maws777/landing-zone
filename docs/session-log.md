@@ -32,8 +32,13 @@ terraform init "-backend-config=backend.hcl"   # only on a fresh clone
 terraform plan    # expect: No changes
 ```
 
-**Next: roadmap step 1, CI/CD identity (GitHub OIDC).** Start with the parked
-questions below, and the ADR on whether bootstrap runs in CI.
+- **CI/CD live (roadmap step 1):** GitHub OIDC roles in management, and a
+  workflow that plans on PRs and applies on `main` behind the `management`
+  environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
+  stages need their permissions added in `ci-identity.tf` first (local apply).
+
+**Next: roadmap step 2, SCPs** in `stages/01-guardrails`, deployed through
+the pipeline. The apply role already has the Organizations policy actions.
 
 **Gotchas learned**
 
@@ -47,10 +52,6 @@ questions below, and the ADR on whether bootstrap runs in CI.
 **Open, not blocking:** whether to keep the `Co-Authored-By: Claude` trailer on
 commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 
-**Parked for CI/CD (roadmap step 1):** first role applied locally; bootstrap
-local-only vs in CI (ADR); public Actions logs would leak IDs/emails; bucket
-name via `-backend-config` from a GitHub variable. Details in CLAUDE.md step 1.
-
 **Idea parked (2026-09-29): note-taking MCP.** The MCP server could become
 a note tool I write to and search through Claude, including claude.ai on the
 web. That would answer the corpus question. It raises three questions for later
@@ -59,6 +60,47 @@ hard-delete, keep versions); an always-on tool conflicts with deploying the app
 only for demos (always-on cheap core + demo stack?); and whether I also want my
 own web UI. Details are in CLAUDE.md roadmap step 8. Don't start until the
 landing zone is done.
+
+---
+
+## 2026-09-29 (later) — roadmap step 1: CI/CD through GitHub OIDC
+
+### Done
+
+**Decisions:** bootstrap stays local-only (ADR 0004); full plan output in
+public logs, account IDs accepted as visible (ADR 0005); apply gated by a
+GitHub environment `management` (required reviewer: me, deployments from
+`main` only).
+
+**Applied locally (bootstrap, 7 resources):** the GitHub OIDC provider, plus
+`landing-zone-ci-plan` (trusted by `…:pull_request`) and
+`landing-zone-ci-apply` (trusted by `…:environment:management`). Both have no
+`iam:*` and no account actions, and are explicitly denied the bootstrap state.
+The permissions cover only what `01-guardrails` needs (read Organizations,
+and for apply, manage SCPs), and grow per stage through bootstrap.
+
+**Immutable subject claims:** the repo was created after 2026-07-15, so its
+OIDC `sub` embeds the numeric owner and repo IDs
+(`repo:maws777@163140591/landing-zone@1386363061:…`). Confirmed working: the
+trust policy uses exact `StringEquals` and the first plan run was accepted.
+
+**Pipeline:** `.github/workflows/terraform.yml`. PR → plan with the plan role;
+push to `main` → apply with the apply role behind the environment gate.
+Actions are pinned by SHA. `01-guardrails` is empty on purpose, so the first
+runs test the chain without changing anything. First PR plan: all green.
+
+### Gotchas
+
+- **Repository vs environment variables.** I first put `MANAGEMENT_ACCOUNT_ID`
+  and `STATE_BUCKET` in the `management` environment. The plan job declares no
+  environment, so it saw nothing. That produced the role ARN
+  `arn:aws:iam:::role/…` and STS returned `Request ARN is invalid`. That is a
+  different error from a trust rejection (`Not authorized to perform
+  sts:AssumeRoleWithWebIdentity`). Fixed by moving both to repository
+  variables and deleting the environment copies (an environment value would
+  silently override the repository one).
+- Provider lock files for CI stages need Linux checksums too:
+  `terraform providers lock -platform=linux_amd64 -platform=windows_amd64`.
 
 ---
 
