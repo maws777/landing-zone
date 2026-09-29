@@ -19,6 +19,33 @@ variable "management_account_id" {
   }
 }
 
+# The GitHub repo whose workflows may assume the CI roles (ci-identity.tf).
+# The numeric IDs are public (api.github.com/repos/<owner>/<repo>) and are what
+# make the trust policy survive a rename or a lookalike repo; see ci-identity.tf.
+variable "github_owner" {
+  description = "GitHub user or org that owns the repo."
+  type        = string
+  default     = "maws777"
+}
+
+variable "github_owner_id" {
+  description = "Numeric ID of github_owner, as embedded in immutable OIDC subject claims."
+  type        = string
+  default     = "163140591"
+}
+
+variable "github_repository" {
+  description = "Repository name, without the owner."
+  type        = string
+  default     = "landing-zone"
+}
+
+variable "github_repository_id" {
+  description = "Numeric ID of the repository, as embedded in immutable OIDC subject claims."
+  type        = string
+  default     = "1386363061"
+}
+
 variable "account_emails" {
   description = <<-EOT
     Root email address per member account, keyed by account name.

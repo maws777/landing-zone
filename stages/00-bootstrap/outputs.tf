@@ -23,6 +23,11 @@ output "account_ids" {
   value       = { for name, account in aws_organizations_account.member : name => account.id }
 }
 
+output "ci_role_arns" {
+  description = "Roles GitHub Actions assumes: plan on pull requests, apply in the `management` environment."
+  value       = { for name, role in aws_iam_role.github : name => role.arn }
+}
+
 output "state_bucket_name" {
   description = "Terraform state bucket. Referenced by the s3 backend block."
   value       = aws_s3_bucket.state.id
