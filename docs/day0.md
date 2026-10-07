@@ -70,8 +70,13 @@ immediately mattered more than being warned reproducibly.
 
 ## 4. AWS Organizations
 
-**What:** Enabled AWS Organizations with **all features**. Created nothing
-inside it — no OUs, no member accounts, no policies.
+**What:** Enabled AWS Organizations with **all features**. No OUs and no
+member accounts. One SCP was also created, in the console as root, and
+attached to the organization root: `DenyLeaveAndCloseAccount` (deny
+`organizations:LeaveOrganization` and `account:CloseAccount`). That wasn't
+noticed until 2026-09-30, when CloudTrail showed who made it and when; see
+the session log. Reproducing this setup does not need it: the SCPs belong to
+`stages/01-guardrails`.
 
 **Where:** Console → AWS Organizations → Create an organization.
 
