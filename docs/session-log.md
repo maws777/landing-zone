@@ -5,14 +5,20 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-09-29, end of session)
+## Resume here (updated 2026-10-07)
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: bootstrap stage complete (pillar 1, pre-roadmap).**
+**State of the world: roadmap step 2 (SCPs), rollout step 2 of 2 in a PR.**
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
-  `sso` + `cloudtrail`. Feature set ALL, SCP type enabled, **no SCPs yet**.
+  `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
+- **SCPs:** `baseline-protections` (now also denies `account:CloseAccount`) +
+  `region-restriction` (Terraform, `01-guardrails`). Live on the **Sandbox OU**;
+  PR `scp/root-rollout` moves them to the **root**. Also at the root, besides
+  `FullAWSAccess`: the hand-made `DenyLeaveAndCloseAccount` from Day 0 that
+  Terraform doesn't manage (see the 2026-09-30 entry), to be deleted after the
+  PR is applied.
 - 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
   `AdministratorAccess` on all of them via Identity Center.
 - Terraform state in **S3** with native locking. Bucket name in gitignored
@@ -25,7 +31,7 @@ Read this block first; the entries below have the detail if needed.
 **To start a session**
 
 ```powershell
-git switch main; git pull           # last session ended on branch ci/github-oidc
+git switch main; git pull
 aws sso login --profile management-admin
 cd stages/00-bootstrap
 $env:AWS_PROFILE = "management-admin"
@@ -38,8 +44,14 @@ terraform plan    # expect: No changes
   environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
   stages need their permissions added in `ci-identity.tf` first (local apply).
 
-**Next: roadmap step 2, SCPs** in `stages/01-guardrails`, deployed through
-the pipeline. The apply role already has the Organizations policy actions.
+**Next: finish roadmap step 2.**
+
+1. Merge PR `scp/root-rollout`, approve the apply at the `management` gate.
+2. Retest from `staging-admin`: us-east-1 now denied, eu-west-3 and IAM work.
+   Check `list-policies-for-target` on the root shows both policies.
+3. Only then detach and delete `DenyLeaveAndCloseAccount` (`p-l3whi2wf`) from
+   the root (CLI, management account). Order matters: the `CloseAccount` deny
+   in `baseline-protections` must be live at the root first.
 
 **Gotchas learned**
 
@@ -61,6 +73,133 @@ hard-delete, keep versions); an always-on tool conflicts with deploying the app
 only for demos (always-on cheap core + demo stack?); and whether I also want my
 own web UI. Details are in CLAUDE.md roadmap step 8. Don't start until the
 landing zone is done.
+
+---
+
+## 2026-10-07 — roadmap step 2: SCPs to the root (PR B)
+
+### Done
+
+**Pending checks from last session, all clean:**
+
+- `p-lrhf34ue` is `region-restriction`, as expected.
+- `terraform plan` in `01-guardrails`: `No changes`.
+- SCPs by target, listed for the root, all four OUs **and every account**
+  (an SCP can be attached straight to an account, which hadn't been checked
+  before). Only the known ones: `FullAWSAccess` everywhere, our two on
+  Sandbox, `DenyLeaveAndCloseAccount` on the root. No more hidden policies.
+- The CI apply role's `AttachPolicy` is `Resource: *`, so attaching to the root
+  needs no bootstrap change.
+
+**Decision on the Day 0 policy: option (a).** `account:CloseAccount` folded
+into `baseline-protections` as `DenyCloseAccount`; the manual policy gets
+deleted once the new deny is live at the root.
+
+**PR `scp/root-rollout`.** `local.scp_targets` now points at the root instead
+of the Sandbox OU. Local plan: `2 to add, 1 to change, 2 to destroy`:
+
+- `~ baseline` in place: the new statement and description, same ID
+  (`p-vklud71h`), so its attachments are untouched.
+- `+` both policies on `r-tmym`, `-` both from the Sandbox OU. The destroys are
+  attachments, not policies (the for_each key changed from `sandbox` to
+  `root`). Sandbox keeps both by inheritance.
+
+After apply the root holds 4 of its 5 SCP slots, back to 3 once the Day 0
+policy is gone, leaving room for step 4's CloudTrail deny.
+
+`local.ou_ids` is unused for now but kept: the next new policy is attached to
+Sandbox first, same rollout path.
+
+---
+
+## 2026-09-30 — roadmap step 2: first SCPs, on the Sandbox OU
+
+### Done
+
+**Scope decision (ADR 0006).** Deny-lists on top of `FullAWSAccess`, rolled
+out to the Sandbox OU first, then the root. Two items from the original
+step 2 list were deferred on purpose:
+
+- *CloudTrail / log-bucket deny* moves to step 4. The trail and bucket don't
+  exist yet, so the policy would be written against names not chosen yet.
+- *Relaxed Sandbox variants* wait until Workloads has stricter preventive SCPs
+  worth skipping in Sandbox. The two policies below don't block anything the
+  detective demos need, so there is nothing to relax yet.
+
+**Two SCPs, deployed through the pipeline (PR #4).** `01-guardrails` now has:
+
+- `baseline-protections`: deny `organizations:LeaveOrganization`; deny use of
+  member-account root credentials. The root statement adds
+  `Null aws:AssumedRoot = true`, AWS's documented pattern, so it blocks
+  long-term root credentials but not the `sts:AssumeRoot` sessions that
+  step 3 relies on. The overlap with step 3 was resolved before writing it.
+- `region-restriction`: deny all actions outside `eu-west-3`, except global
+  services. The exception list is copied from AWS's Control Tower Region deny
+  control, not hand-picked. Global services (IAM, Organizations, Route 53,
+  billing...) are served from us-east-1, so without the list IAM would break
+  in every member account. A plan-time precondition checks the 5,120-char
+  SCP limit.
+- Attachments come from one map in `attachments.tf`, so the move to the root
+  is a one-line change.
+
+Plan (local, then CI): `4 to add, 0 to change, 0 to destroy`, both
+attachments on the Sandbox OU. The OU ID was confirmed separately with the CLI
+(it holds only the `sandbox` account). Merged, apply approved at the
+`management` gate.
+
+**Verified from `sandbox-admin`:**
+
+| Test | Result |
+|---|---|
+| `ec2 describe-vpcs --region us-east-1` | `UnauthorizedOperation ... with an explicit deny in a service control policy` ✔ |
+| `ec2 describe-vpcs --region eu-west-3` | works ✔ |
+| `iam list-roles` (global service) | works ✔ |
+| Control: same us-east-1 call from `staging-admin` | works, as expected: no SCP on Workloads yet ✔ |
+
+The deny message names the exact SCP that blocked the call. That makes it the
+first thing to read when something breaks later.
+
+### Finding: an SCP nobody wrote down
+
+Listing SCPs per target after the apply showed a policy at the **root** that
+isn't in Terraform and isn't in any doc: `DenyLeaveAndCloseAccount`
+(`p-l3whi2wf`). Content: deny `organizations:LeaveOrganization` and
+`account:CloseAccount`, `Resource: *`. Customer-managed, untagged.
+
+CloudTrail (Organizations events are logged in **us-east-1**) says the root
+user created it in the web console on 2026-09-24 at ~22:01, the night
+Organizations was set up, and attached it to the root. A second `CreatePolicy`
+two seconds later failed with `DuplicatePolicyException` (a double submit). So
+Day 0's "created nothing inside the organization" was wrong. `day0.md` is
+corrected. The last session's "no SCPs yet" came from not listing policies
+by target.
+
+What it means:
+
+- It has applied to every member account since they were created. Harmless,
+  and `account:CloseAccount` is a good deny to have.
+- It overlaps with `baseline-protections` on `LeaveOrganization`.
+- It counts toward the root's 5-SCP limit. With PR B the root would hold 4
+  (`FullAWSAccess`, this one, our two), which still fits.
+- It's drift: a live control that the repo doesn't describe.
+
+Options: (a) **fold `account:CloseAccount` into `baseline-protections`,
+then detach and delete the manual policy** (recommended: one source of truth,
+no duplicate deny). (b) `import` it into Terraform as-is. (c) Leave it and
+document it. Deleting it needs care in ordering: the new deny must be live at
+the root *before* the old one is detached, or there's a window with no
+`CloseAccount` protection.
+
+**Lesson:** trust the API, not memory. `list-policies-for-target` on the root
+and on every OU belongs in the checklist before writing any SCP. The console
+creates things quietly, especially "recommended" setup flows.
+
+### Gotchas
+
+- `WebFetch` on the Organizations SCP examples page returned an empty shell;
+  the Control Tower control-reference page had the full JSON.
+- The `sandbox-admin` session comes from the same `aws sso login` as
+  management. No separate login is needed.
 
 ---
 

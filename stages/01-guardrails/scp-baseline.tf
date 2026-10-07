@@ -22,6 +22,19 @@ data "aws_iam_policy_document" "baseline" {
     resources = ["*"]
   }
 
+  # Closing an account from inside it. A closed account is suspended for 90 days
+  # and only a few closures are allowed per rolling 30 days, so a mistake (or an
+  # attacker) here is slow and expensive to undo. Closing stays possible from the
+  # management account, which SCPs don't bind. This statement replaces the
+  # hand-made Day 0 policy DenyLeaveAndCloseAccount (see the session log,
+  # 2026-09-30), which is deleted once this one is live at the root.
+  statement {
+    sid       = "DenyCloseAccount"
+    effect    = "Deny"
+    actions   = ["account:CloseAccount"]
+    resources = ["*"]
+  }
+
   # The root user of a member account can do anything IAM can't stop, which is
   # why it should never be used. An SCP is one of the few things that does bind
   # root in a member account.
@@ -54,7 +67,7 @@ data "aws_iam_policy_document" "baseline" {
 
 resource "aws_organizations_policy" "baseline" {
   name        = "baseline-protections"
-  description = "Deny leaving the organization and use of member-account root credentials. Managed by 01-guardrails."
+  description = "Deny leaving the organization, closing accounts, and use of member-account root credentials. Managed by 01-guardrails."
   type        = "SERVICE_CONTROL_POLICY"
 
   # Minified: SCPs are capped at 5,120 characters and whitespace counts.

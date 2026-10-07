@@ -8,8 +8,8 @@ rather than from a laptop.
 
 | SCP | Denies | Attached to |
 |---|---|---|
-| `baseline-protections` | Leaving the organization; any use of a member account's root password or keys (short-lived `AssumeRoot` sessions still work) | Sandbox OU |
-| `region-restriction` | Any action outside `eu-west-3`, except global services (list copied from AWS's Region deny control) | Sandbox OU |
+| `baseline-protections` | Leaving the organization; closing an account from inside it; any use of a member account's root password or keys (short-lived `AssumeRoot` sessions still work) | Organization root |
+| `region-restriction` | Any action outside `eu-west-3`, except global services (list copied from AWS's Region deny control) | Organization root |
 
 Why each statement exists is commented in `scp-baseline.tf` and
 `scp-region.tf`. The reasoning behind the overall approach is in
@@ -35,9 +35,13 @@ Cost: none. SCPs are free.
 
 Attachments live in `attachments.tf`, in `local.scp_targets`, one PR per step:
 
-1. **Sandbox OU only** (current). Test from `sandbox-admin`, see below.
-2. **Organization root.** Replace the Sandbox entry with the root, so every
-   current and future account inherits the policies.
+1. **Sandbox OU only** (PR #4). Test from `sandbox-admin`, see below.
+2. **Organization root** (current). The Sandbox entry replaced by the root, so
+   every current and future account inherits the policies. Same tests, from any
+   member profile (e.g. `staging-admin`).
+
+New policies follow the same path: attach to Sandbox, test, then add to the
+root.
 
 ### Testing an attachment
 
