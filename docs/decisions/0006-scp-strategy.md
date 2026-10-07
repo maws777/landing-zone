@@ -85,3 +85,12 @@ Costs and risks:
   narrowing it is a later decision, not a guess.
 - Bedrock embeddings (step 8) may need a documented cross-region exception if
   the chosen model isn't in Paris.
+
+## Update 2026-10-07
+
+Rollout finished: both policies are attached at the root and were tested from
+`staging-admin` and `sandbox-admin`. `baseline-protections` also gained a
+`DenyCloseAccount` statement (`account:CloseAccount`). It replaced a policy
+created by hand in the console on Day 0, `DenyLeaveAndCloseAccount`, which was
+detached and deleted once the new statement was live at the root. Every SCP in
+the organization is now defined in `stages/01-guardrails`.

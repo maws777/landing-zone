@@ -9,16 +9,15 @@ re-deriving where things stood. Newest session first.
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap step 2 (SCPs), rollout step 2 of 2 in a PR.**
+**State of the world: roadmap steps 1 (CI/CD) and 2 (SCPs) done.**
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
-- **SCPs:** `baseline-protections` (now also denies `account:CloseAccount`) +
-  `region-restriction` (Terraform, `01-guardrails`). Live on the **Sandbox OU**;
-  PR `scp/root-rollout` moves them to the **root**. Also at the root, besides
-  `FullAWSAccess`: the hand-made `DenyLeaveAndCloseAccount` from Day 0 that
-  Terraform doesn't manage (see the 2026-09-30 entry), to be deleted after the
-  PR is applied.
+- **SCPs at the root:** `FullAWSAccess`, `baseline-protections` (deny leave
+  org, close account, long-term root credentials) and `region-restriction`
+  (only `eu-west-3` + global services). Both ours are Terraform, `01-guardrails`.
+  3 of 5 slots used. Every SCP in the org is in Terraform; the Day 0 manual
+  one is deleted.
 - 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
   `AdministratorAccess` on all of them via Identity Center.
 - Terraform state in **S3** with native locking. Bucket name in gitignored
@@ -44,14 +43,16 @@ terraform plan    # expect: No changes
   environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
   stages need their permissions added in `ci-identity.tf` first (local apply).
 
-**Next: finish roadmap step 2.**
+**Next: roadmap step 3, centralized root access management.** Remove the
+root credentials of the member accounts, leaving only short-lived
+`sts:AssumeRoot` sessions from management for root-only tasks. The
+`DenyRootUserLongTermCredentials` statement was written to stay compatible
+with this. Verify the current mechanism against AWS docs before writing it
+(likely: `iam.amazonaws.com` trusted access in `00-bootstrap` + the IAM
+organizations features resource).
 
-1. Merge PR `scp/root-rollout`, approve the apply at the `management` gate.
-2. Retest from `staging-admin`: us-east-1 now denied, eu-west-3 and IAM work.
-   Check `list-policies-for-target` on the root shows both policies.
-3. Only then detach and delete `DenyLeaveAndCloseAccount` (`p-l3whi2wf`) from
-   the root (CLI, management account). Order matters: the `CloseAccount` deny
-   in `baseline-protections` must be live at the root first.
+**Checklist before writing any SCP:** `list-policies-for-target` on the root,
+every OU *and every account*.
 
 **Gotchas learned**
 
@@ -109,6 +110,35 @@ policy is gone, leaving room for step 4's CloudTrail deny.
 
 `local.ou_ids` is unused for now but kept: the next new policy is attached to
 Sandbox first, same rollout path.
+
+Merged as PR #5, CI plan matched the local one, apply approved at the gate.
+
+**Verified after apply:**
+
+| Test | Result |
+|---|---|
+| SCPs on the root | `FullAWSAccess`, `DenyLeaveAndCloseAccount`, `region-restriction`, `baseline-protections` ✔ |
+| SCPs attached directly to the Sandbox OU | only `FullAWSAccess` (ours inherited from the root) ✔ |
+| `staging-admin` → us-east-1 | explicit SCP deny naming `p-lrhf34ue` ✔ (worked before this PR) |
+| `staging-admin` → eu-west-3, `iam list-roles` | work ✔ |
+| `sandbox-admin` → us-east-1 | still denied, now by inheritance ✔ |
+| `management-admin` → us-east-1 | works ✔ (SCPs never apply to management) |
+| Live `baseline-protections` content | includes `DenyCloseAccount` ✔ |
+
+**Day 0 policy removed.** With `DenyCloseAccount` confirmed live at the root,
+`DenyLeaveAndCloseAccount` (`p-l3whi2wf`) was detached from the root and
+deleted with the CLI. Checked afterwards: `describe-policy` returns
+`PolicyNotFoundException`, the org has exactly three SCPs (`FullAWSAccess` and
+ours), and `terraform plan` in `01-guardrails` still says `No changes`.
+ADR 0006 got a dated update note rather than an edit to the decision.
+
+**Roadmap step 2 is done.**
+
+**Interview version:** two deny-list SCPs at the org root, rolled out through
+the Sandbox OU first and tested from a real member account. A manual policy
+found by auditing the API, not memory, was replaced by a Terraform-managed
+statement in the safe order: new deny live and verified first, old one removed
+after.
 
 ---
 
