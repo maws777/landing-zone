@@ -16,6 +16,8 @@ S3. Region `eu-west-3`.
 | 6 member accounts | log-archive, security, network, staging, prod, sandbox |
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
 | S3 state bucket | Versioned, SSE-S3, public access blocked, TLS-only |
+| GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
+| Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
 
 Account layout:
 
@@ -209,6 +211,32 @@ Account IDs come from `terraform output account_ids`. Verify with:
 ```powershell
 aws sts get-caller-identity --profile prod-admin
 ```
+
+### 6. Removing member root credentials
+
+After `root-access.tf` is applied, the management account can delete each
+member account's root password, keys, signing certificates and MFA. That is a
+one-off action per account, not a resource, so it's a script, run from the
+repo root:
+
+```powershell
+aws sso login --profile management-admin
+./scripts/root-credentials.ps1 -Action Audit                          # read-only, all member accounts
+./scripts/root-credentials.ps1 -Action Delete -AccountId <one id>     # try one first
+./scripts/root-credentials.ps1 -Action Delete                         # then the rest
+./scripts/root-credentials.ps1 -Action Audit                          # everything should be false/0
+```
+
+Each account gets its own `sts:AssumeRoot` session (15 minutes), scoped by an
+AWS-managed task policy (`IAMAuditRootUserCredentials` or
+`IAMDeleteRootUserCredentials`) that denies everything except those few IAM
+calls on the root user. `Delete` asks before changing anything.
+
+Accounts created after the feature was enabled have no root credentials to
+begin with. To get a member root back for a task `AssumeRoot` can't do: IAM
+console → Root access management → the account → **Allow password recovery**,
+then reset the password from the account's root email. Delete the credentials
+again afterwards.
 
 ## Decisions worth knowing
 

@@ -22,6 +22,7 @@ resource "aws_organizations_organization" "this" {
   aws_service_access_principals = [
     "sso.amazonaws.com",        # IAM Identity Center - already enabled, must not be removed
     "cloudtrail.amazonaws.com", # org-wide CloudTrail trail, roadmap step 4
+    "iam.amazonaws.com",        # centralized root access, roadmap step 3 (root-access.tf)
   ]
 
   # Same whole-list semantics. SCPs are the preventive half of the guardrails.

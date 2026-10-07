@@ -43,13 +43,10 @@ terraform plan    # expect: No changes
   environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
   stages need their permissions added in `ci-identity.tf` first (local apply).
 
-**Next: roadmap step 3, centralized root access management.** Remove the
-root credentials of the member accounts, leaving only short-lived
-`sts:AssumeRoot` sessions from management for root-only tasks. The
-`DenyRootUserLongTermCredentials` statement was written to stay compatible
-with this. Verify the current mechanism against AWS docs before writing it
-(likely: `iam.amazonaws.com` trusted access in `00-bootstrap` + the IAM
-organizations features resource).
+**In progress: roadmap step 3, centralized root access (ADR 0007).** Branch
+`root-access/centralize`. Features enabled and verified; audit shows all six
+member roots already without credentials (nothing to delete). Left: the
+manual "Forgot password" test on the sandbox root email, then merge.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
@@ -74,6 +71,81 @@ hard-delete, keep versions); an always-on tool conflicts with deploying the app
 only for demos (always-on cheap core + demo stack?); and whether I also want my
 own web UI. Details are in CLAUDE.md roadmap step 8. Don't start until the
 landing zone is done.
+
+---
+
+## 2026-10-07 (later) — roadmap step 3: centralized root access
+
+### Why
+
+Each member account has its own root user, identified by its root email. All
+six are `+` aliases of one Gmail inbox, and accounts made by Organizations
+have no root password but allow "Forgot password". So whoever reads that inbox
+can become root in any member account. The SCP from step 2 makes such a login
+useless (every action denied), but the login itself works, and an SCP can be
+detached. Centralized root access removes the login.
+
+### Done
+
+**Checked the docs and the live state first.** IAM user guide pages on root
+access, the Terraform resource docs (`aws_iam_organizations_features`, in
+provider 6.66.0 already). Live: trusted access `cloudtrail` + `sso` only;
+`list-organizations-features` failed with `ServiceAccessNotEnabledException`;
+no delegated administrators.
+
+**Decisions (ADR 0007):** both features (`RootCredentialsManagement` +
+`RootSessions`) from `00-bootstrap`, local apply (it owns the trusted-access
+list, and CI shouldn't get `iam:EnableOrganizations*`). No delegated
+administrator: one operator, so it would only be a second place able to become
+root everywhere. Deletion per account by script, not Terraform.
+
+**Terraform:** `iam.amazonaws.com` added to the trusted-access list in
+`organization.tf`; new `root-access.tf` with `depends_on` the organization
+(no reference between them, and IAM refuses the features before trusted
+access exists). Plan saved to a file: `1 to add, 1 to change, 0 to destroy`,
+the change adding `iam` with `sso` and `cloudtrail` as the "2 unchanged
+elements". The apply was run by me from the terminal (Claude's permission
+check blocked it running the apply itself): `1 added, 1 changed, 0 destroyed`.
+
+**Verified after apply:** trusted access `cloudtrail` + `iam` + `sso`;
+`list-organizations-features` returns `RootSessions` +
+`RootCredentialsManagement`; `staging-admin` SSO still works; bootstrap plan
+`No changes`.
+
+**Task policies read before scripting.** `IAMAuditRootUserCredentials` and
+`IAMDeleteRootUserCredentials` are Deny-only: deny every action except a short
+list (`NotAction`), and deny those on anything but `arn:aws:iam::*:root`
+(`NotResource`). The root session starts as full root and the task policy
+cuts it down. Both allow the `List*`/`Get*` calls, so one delete session can
+check, delete and re-check.
+
+**`scripts/root-credentials.ps1`:** `-Action Audit|Delete`, all member
+accounts by default, refuses the management account. Root session
+credentials are put in env vars only for each call and `AWS_PROFILE` is
+cleared during it, so a call can't fall back to the management account.
+`Delete` uses `ShouldProcess` (asks first) and audits after.
+
+**Audit result: all six member roots already have no credentials**
+(`password=False keys=0 certs=0 mfa=0` everywhere). Expected: Organizations
+creates accounts without a root password, and none was ever set. So `Delete`
+was not run; nothing to delete. The change that matters is the feature itself:
+before, "no password" still allowed "Forgot password" from the inbox; with
+`RootCredentialsManagement` on, AWS docs say member accounts can't recover the
+root password unless management runs "Allow password recovery" first.
+To verify by hand: "Forgot password" on the root sign-in page for the sandbox
+root email.
+
+### Gotchas
+
+- **`[Environment]::SetEnvironmentVariable($n, $null)` doesn't remove the
+  variable from PowerShell:** PowerShell passes `$null` to a .NET string
+  parameter as `""`. The first audit run set `AWS_PROFILE` to empty and the
+  CLI failed with `The config profile () could not be found`. It failed closed
+  (no fallback to the management account). Fixed with `Remove-Item Env:...`.
+
+- `$Profile` is a PowerShell automatic variable (path to the profile script);
+  the script uses `$ManagementProfile`.
+- `sts:AssumeRoot` has no global endpoint; the script passes `--region`.
 
 ---
 
