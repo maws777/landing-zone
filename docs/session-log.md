@@ -47,11 +47,36 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Next: roadmap step 4, logging.** Org CloudTrail trail → bucket in
-log-archive with Object Lock / retention, plus the SCP denying CloudTrail
-changes and log-bucket tampering (deferred from step 2). Check costs first:
-the first org trail's management events are free, S3 storage and Object Lock
-retention are not.
+**Before anything else:** branch `root-access/centralize` (2 commits) is
+**not pushed yet**, and the docs PR `docs/scp-step2-done` isn't merged. Merge
+the docs PR, then push and PR `root-access/centralize` (no CI plan, docs +
+bootstrap only).
+
+**Next: roadmap step 4, logging.** Discussed 2026-10-07, nothing built:
+
+- **Org trail** in management: multi-region (global services log in
+  us-east-1; SCP-denied calls get logged too), log file validation on
+  (signed hourly digests, `aws cloudtrail validate-logs`).
+- **Bucket in log-archive:** bucket policy lets only CloudTrail write, pinned
+  with `aws:SourceArn` to our trail (confused deputy); Object Lock; lifecycle
+  expiry; encryption.
+- **SCP** (deferred from step 2): deny weakening the log bucket in
+  log-archive, deny `StopLogging`/`DeleteTrail` in members. The org trail
+  itself sits in management, outside SCPs. Test from `log-archive-admin`,
+  not Sandbox (the bucket isn't there).
+- **New concept: cross-account Terraform.** Stage `02-logging` needs a second
+  provider assuming a role in log-archive. Option A: CI assumes
+  `OrganizationAccountAccessRole` (full admin). Option B: bootstrap creates a
+  narrow CI role in log-archive.
+- **Proposed decisions (to confirm, then ADR 0008):** Object Lock
+  **governance** mode, **1 year** retention, **SSE-S3**, **option B**. Open:
+  trail managed from management vs delegated to `security`.
+- **Costs (estimates, check pricing pages first):** first copy of management
+  events free; S3 storage + PUTs cents/month; no data events, Lake or
+  Insights; KMS would be ~$1/month fixed. Retention length is the real lever.
+- **Order:** decisions + ADR → bootstrap (CI role in log-archive, trail
+  permissions, local apply) → `02-logging` via CI (bucket, then trail) →
+  test (sandbox change shows up in the bucket, `validate-logs`) → SCP.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
