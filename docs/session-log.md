@@ -9,7 +9,7 @@ re-deriving where things stood. Newest session first.
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap steps 1 (CI/CD) and 2 (SCPs) done.**
+**State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access) done.**
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
@@ -43,10 +43,15 @@ terraform plan    # expect: No changes
   environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
   stages need their permissions added in `ci-identity.tf` first (local apply).
 
-**In progress: roadmap step 3, centralized root access (ADR 0007).** Branch
-`root-access/centralize`. Features enabled and verified; audit shows all six
-member roots already without credentials (nothing to delete). Left: the
-manual "Forgot password" test on the sandbox root email, then merge.
+**Roadmap step 3 done (ADR 0007):** centralized root access on, all six
+member roots without credentials, password recovery refused (tested).
+Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
+
+**Next: roadmap step 4, logging.** Org CloudTrail trail → bucket in
+log-archive with Object Lock / retention, plus the SCP denying CloudTrail
+changes and log-bucket tampering (deferred from step 2). Check costs first:
+the first org trail's management events are free, S3 storage and Object Lock
+retention are not.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
@@ -132,8 +137,24 @@ was not run; nothing to delete. The change that matters is the feature itself:
 before, "no password" still allowed "Forgot password" from the inbox; with
 `RootCredentialsManagement` on, AWS docs say member accounts can't recover the
 root password unless management runs "Allow password recovery" first.
-To verify by hand: "Forgot password" on the root sign-in page for the sandbox
-root email.
+
+**Verified by hand, end to end.** Root sign-in page → sandbox root email →
+"Forgot password". AWS **still sent the reset email**. Following the link
+gave: *"Password recovery failed. Password recovery is disabled for your AWS
+account. Please contact your administrator for further assistance."* So the
+block is enforced at the reset step, not when the email is sent. The email
+alone looked like a failed control. Lesson: test a control all the way
+through, not just the first visible step. (Side effect: anyone can still make
+AWS send these emails, but they lead nowhere.)
+
+**Roadmap step 3 is done.**
+
+**Interview version:** member accounts have no root credentials, and password
+recovery from the root inbox is disabled org-wide (tested: the reset link is
+refused). Root-only tasks go through 15-minute `sts:AssumeRoot` sessions from
+the management account, each scoped to one task by a deny-only task policy and
+logged in CloudTrail under a named Identity Center user. The step 2 SCP stays
+as a second layer if a root login ever comes back.
 
 ### Gotchas
 
