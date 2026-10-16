@@ -190,6 +190,62 @@ data "aws_iam_policy_document" "ci_permissions" {
       resources = ["*"]
     }
   }
+
+  # --- 02-logging (ADR 0008) ----------------------------------------------
+
+  # The hop into log-archive (log-archive-access.tf). Each role may assume only
+  # its own counterpart: plan can't borrow apply's powers over there.
+  statement {
+    sid       = "AssumeLogArchiveRole"
+    actions   = ["sts:AssumeRole"]
+    resources = [aws_iam_role.log_archive_ci[each.key].arn]
+  }
+
+  # Reading trails. DescribeTrails has no resource-level permissions, so "*".
+  statement {
+    sid = "ReadCloudTrail"
+    actions = [
+      "cloudtrail:DescribeTrails",
+      "cloudtrail:GetTrail",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:GetEventSelectors",
+      "cloudtrail:GetInsightSelectors",
+      "cloudtrail:ListTags",
+    ]
+    resources = ["*"]
+  }
+
+  # CloudTrail checks the service-linked role exists when an organization trail
+  # is created (iam:GetRole in AWS's documented minimum). Read-only, and scoped
+  # to service-linked roles, so CI still can't see or touch its own roles.
+  statement {
+    sid       = "ReadServiceLinkedRoles"
+    actions   = ["iam:GetRole"]
+    resources = ["arn:aws:iam::${var.management_account_id}:role/aws-service-role/*"]
+  }
+
+  # Create and configure the one organization trail, by exact ARN.
+  #
+  # Deliberately absent: cloudtrail:StopLogging and cloudtrail:DeleteTrail. A
+  # pipeline that can turn off the audit log is the first thing an attacker who
+  # compromised it would use. Stopping or deleting the trail is a human,
+  # local, deliberate act, and step 9 will alarm on it.
+  dynamic "statement" {
+    for_each = each.key == "apply" ? [1] : []
+    content {
+      sid = "ManageOrgTrail"
+      actions = [
+        "cloudtrail:CreateTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:StartLogging",
+        "cloudtrail:PutEventSelectors",
+        "cloudtrail:PutInsightSelectors",
+        "cloudtrail:AddTags",
+        "cloudtrail:RemoveTags",
+      ]
+      resources = [local.trail_arn]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "ci_permissions" {

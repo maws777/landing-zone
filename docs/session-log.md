@@ -99,6 +99,38 @@ Don't start until the landing zone is done.
 
 ---
 
+## 2026-10-16 (later) — roadmap step 4 started: bootstrap prerequisites
+
+ADR 0008 accepted (org trail in management, Object Lock governance 365 days,
+SSE-S3, narrow CI roles in log-archive). PR #6 opened for step 3 + docs.
+
+Applied locally in `00-bootstrap` (5 added, 2 changed, 0 destroyed; follow-up
+plan: no changes):
+
+- `AWSServiceRoleForCloudTrail` pre-created (didn't exist; no trails yet), so
+  CI never needs `iam:CreateServiceLinkedRole`.
+- Second provider `aws.log_archive` via `OrganizationAccountAccessRole`.
+- In log-archive: `ci/landing-zone-ci-logging-{plan,apply}`, each trusting only
+  its management CI counterpart, scoped to the bucket ARN
+  `landing-zone-org-trail-<log-archive id>` (no `/*`, so no object access).
+  Apply has an explicit Deny on `s3:DeleteBucket`.
+- Management CI roles: `sts:AssumeRole` into their counterpart, CloudTrail
+  read, `iam:GetRole` on service-linked roles only, and (apply) create/update/
+  start the one trail. No `StopLogging`/`DeleteTrail`.
+
+**Tested:** my `AdministratorAccess` session is refused `sts:AssumeRole` on
+the log-archive plan role. Admin in management isn't enough: the trust policy
+in log-archive names only the CI role.
+
+**Watch for:** AWS's documented minimum for org trails also lists
+`iam:CreateServiceLinkedRole` and `organizations:EnableAWSServiceAccess`; left
+out on purpose. If the CI trail apply fails with AccessDenied on one of them,
+add the narrowest version.
+
+**Next:** `02-logging` stage (bucket first, then trail) + workflow matrix.
+
+---
+
 ## 2026-10-16 — app design: calorie-tracking MCP (nothing built)
 
 Design discussion only; no AWS changes. The full design lives in CLAUDE.md

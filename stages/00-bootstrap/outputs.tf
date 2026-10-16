@@ -28,6 +28,16 @@ output "ci_role_arns" {
   value       = { for name, role in aws_iam_role.github : name => role.arn }
 }
 
+output "log_archive_ci_role_arns" {
+  description = "Roles in log-archive that the CI roles chain into to manage the CloudTrail bucket."
+  value       = { for name, role in aws_iam_role.log_archive_ci : name => role.arn }
+}
+
+output "log_bucket_name" {
+  description = "Name 02-logging must give the CloudTrail bucket; the log-archive CI roles are scoped to it."
+  value       = local.log_bucket_name
+}
+
 output "state_bucket_name" {
   description = "Terraform state bucket. Referenced by the s3 backend block."
   value       = aws_s3_bucket.state.id
