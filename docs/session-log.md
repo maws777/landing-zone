@@ -5,7 +5,7 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-10-07)
+## Resume here (updated 2026-10-16)
 
 Read this block first; the entries below have the detail if needed.
 
@@ -93,14 +93,50 @@ every OU *and every account*.
 **Open, not blocking:** whether to keep the `Co-Authored-By: Claude` trailer on
 commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 
-**Idea parked (2026-09-29): note-taking MCP.** The MCP server could become
-a note tool I write to and search through Claude, including claude.ai on the
-web. That would answer the corpus question. It raises three questions for later
-ADRs: write tools make prompt injection more dangerous (use scoped tokens, no
-hard-delete, keep versions); an always-on tool conflicts with deploying the app
-only for demos (always-on cheap core + demo stack?); and whether I also want my
-own web UI. Details are in CLAUDE.md roadmap step 8. Don't start until the
-landing zone is done.
+**App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
+note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
+Don't start until the landing zone is done.
+
+---
+
+## 2026-10-16 — app design: calorie-tracking MCP (nothing built)
+
+Design discussion only; no AWS changes. The full design lives in CLAUDE.md
+roadmap step 8; this is the short version plus what was verified.
+
+- **Concept:** Claude estimates nutrition itself and calls tools with
+  structured values; the server validates and stores. No food database, so no
+  embeddings or pgvector.
+- **Architecture:** always-on serverless core (API Gateway HTTP API → Lambda →
+  DynamoDB, Cognito), ~€1/month. A read-only dashboard website (S3 +
+  CloudFront, iPhone home-screen PWA) with the day's table, targets, trends,
+  leftovers and an AI summary + tips from Bedrock (Haiku-class), cached and
+  regenerated only when entries change; "memory" from computed stats + the
+  model's own diary notes. An evening email via SES was considered first and
+  dropped the same day in favour of the website. Meal-prep batches with atomic
+  decrement (DynamoDB transactions) and idempotency keys. ECS/ALB/WAF demo
+  stack demoted to an optional stretch goal; the VPC half of step 7 waits with
+  it.
+
+**Limitations checked against current docs:**
+
+| Concern | Finding | Consequence |
+|---|---|---|
+| Cognito with claude.ai | Cognito supports neither CIMD nor DCR. claude.ai offers "Use your own OAuth client" (pre-registration); MCP spec 2026-07-28 lists pre-registration first in its priority order. | Works: Cognito public app client + PKCE, callback `https://claude.ai/api/mcp/auth_callback`. Spike still needed for discovery (OIDC vs RFC 8414) and token validation (no `aud` in Cognito access tokens). |
+| Bedrock model in Paris | Claude Haiku 5.5: no in-region endpoint in `eu-west-3`; EU geo profile routes to 6 EU regions. A call fails if the SCP blocks any destination. | `region-restriction` needs a narrow Bedrock exception for those EU regions (ADR at step 8). The comment in `scp-region.tf` still says "embeddings"; fix it then. |
+| WAF on HTTP API | Not supported (WAF attaches to REST API, ALB, CloudFront). | Rate limiting via API Gateway throttling on the core; WAF only on the demo stack. |
+| MCP on Lambda | Spec 2026-07-28 removed protocol-level sessions. | Stateless Lambda is a natural fit. |
+| PWA on iPhone | Add to Home Screen + `display: standalone` works (Safari, and other browsers since iOS 16.4); home-screen apps are exempt from Safari's 7-day storage deletion. | Works. Risk: OAuth redirect from Cognito back into the standalone app; test on the phone first. |
+| CloudFront certificate | ACM certs for CloudFront must be in `us-east-1`. | `acm:*` is already region-exempt; Terraform needs a us-east-1 provider alias. |
+
+Sources: claude.com/docs/connectors/custom/remote-mcp,
+modelcontextprotocol.io/specification/2026-07-28 (client registration),
+AWS Bedrock model card for Claude Haiku 5.5, AWS Bedrock cross-Region
+inference docs.
+
+**First task of step 8:** two spikes before building anything: claude.ai →
+Cognito pre-registered client → token validated in Lambda, and iPhone PWA →
+Cognito login → redirect back into the standalone app.
 
 ---
 
