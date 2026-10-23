@@ -5,11 +5,14 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-10-16)
+## Resume here (updated 2026-10-23)
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access) done.**
+**State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access)
+done. Step 4 (logging) in progress:** ADR 0008 accepted, bootstrap
+prerequisites applied locally (CloudTrail service-linked role, narrow CI roles
+in log-archive). No bucket, no trail yet.
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
@@ -47,36 +50,48 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Before anything else:** branch `root-access/centralize` (2 commits) is
-**not pushed yet**, and the docs PR `docs/scp-step2-done` isn't merged. Merge
-the docs PR, then push and PR `root-access/centralize` (no CI plan, docs +
-bootstrap only).
+**Git, before anything else (checked 2026-10-23):**
 
-**Next: roadmap step 4, logging.** Discussed 2026-10-07, nothing built:
+- **PR #6** (`root-access/centralize`, 5 commits: step 2 close-out, step 3,
+  step 4 plan, app design) is open, mergeable, no CI checks (docs +
+  bootstrap only, which CI doesn't run). Merge it. It already contains the
+  `docs/scp-step2-done` commit, so that branch needs no PR of its own.
+- **`logging/org-trail`** = PR #6 + one commit (`8f069c6`, ADR 0008 +
+  bootstrap prerequisites). **Not pushed.** After #6 merges, push it; it
+  becomes its own PR or carries on with `02-logging`.
+- Stale local branches (`docs/scp-step2-done`, `scp/baseline`,
+  `ci/github-oidc`) can be deleted once #6 is in.
 
-- **Org trail** in management: multi-region (global services log in
-  us-east-1; SCP-denied calls get logged too), log file validation on
-  (signed hourly digests, `aws cloudtrail validate-logs`).
-- **Bucket in log-archive:** bucket policy lets only CloudTrail write, pinned
-  with `aws:SourceArn` to our trail (confused deputy); Object Lock; lifecycle
-  expiry; encryption.
-- **SCP** (deferred from step 2): deny weakening the log bucket in
-  log-archive, deny `StopLogging`/`DeleteTrail` in members. The org trail
-  itself sits in management, outside SCPs. Test from `log-archive-admin`,
-  not Sandbox (the bucket isn't there).
-- **New concept: cross-account Terraform.** Stage `02-logging` needs a second
-  provider assuming a role in log-archive. Option A: CI assumes
-  `OrganizationAccountAccessRole` (full admin). Option B: bootstrap creates a
-  narrow CI role in log-archive.
-- **Proposed decisions (to confirm, then ADR 0008):** Object Lock
-  **governance** mode, **1 year** retention, **SSE-S3**, **option B**. Open:
-  trail managed from management vs delegated to `security`.
-- **Costs (estimates, check pricing pages first):** first copy of management
-  events free; S3 storage + PUTs cents/month; no data events, Lake or
-  Insights; KMS would be ~$1/month fixed. Retention length is the real lever.
-- **Order:** decisions + ADR → bootstrap (CI role in log-archive, trail
-  permissions, local apply) → `02-logging` via CI (bucket, then trail) →
-  test (sandbox change shows up in the bucket, `validate-logs`) → SCP.
+**Next: finish roadmap step 4 (logging).** Decided in ADR 0008: org trail in
+management (all regions, management events only, log file validation),
+bucket in log-archive (Object Lock governance 365 days, lifecycle expiry,
+SSE-S3, only CloudTrail writes with `aws:SourceArn` pinned), CI reaches
+log-archive through the narrow roles bootstrap made (option B). Remaining
+order:
+
+1. **`stages/02-logging`**: two providers (management + log-archive via
+   `ci/landing-zone-ci-logging-{plan,apply}`), bucket first, then trail.
+   Bucket name `landing-zone-org-trail-<log-archive id>` is already baked
+   into the CI role policies, so it must match exactly.
+2. **Workflow:** add `02-logging` to `terraform.yml` (today it only runs
+   `01-guardrails`; paths filter + `WORKDIR` → matrix).
+3. **Apply via CI**, bucket then trail. Flag before apply: Object Lock can't
+   be undone, and a year of logs can't be deleted early.
+4. **Test:** a change in sandbox shows up in the bucket; `aws cloudtrail
+   validate-logs` passes.
+5. **SCP** in `01-guardrails`: deny weakening/deleting the log bucket and
+   `s3:BypassGovernanceRetention` in members, except the log-archive CI apply
+   role. Test from `log-archive-admin`. Also test whether it blocks an
+   `AssumeRoot` `S3UnlockBucketPolicy` session (open question in ADR 0008).
+6. Mark step 4 done in CLAUDE.md, update this block.
+
+**Watch for:** if the CI trail apply fails with AccessDenied on
+`iam:CreateServiceLinkedRole` or `organizations:EnableAWSServiceAccess`, add
+the narrowest version (see the 2026-10-16 (later) entry).
+
+**After step 4:** step 5 (move state bucket into log-archive), step 6
+(restrict `OrganizationAccountAccessRole`, read-only permission set), step 7
+(Route 53 zone for `lab.michaelteplov.com`), then the app.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
