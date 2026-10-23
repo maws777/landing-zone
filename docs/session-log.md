@@ -114,6 +114,37 @@ Don't start until the landing zone is done.
 
 ---
 
+## 2026-10-23 — `02-logging` written, not applied
+
+PR #6 merged (steps 2–3 close-out on `main`). `logging/org-trail` pushed.
+Drift check first: `00-bootstrap` plan, no changes.
+
+**`stages/02-logging`** (bucket in log-archive + org trail in management, ADR
+0008). Local plan with `OrganizationAccountAccessRole`: 9 to add, 0 to
+change, 0 to destroy. Bucket name checked equal to what the CI roles are
+scoped to.
+
+- log-archive account ID is **looked up** from the organization by name
+  (`log-archive`), not another CI variable. The provider config depends on
+  that data source; Terraform reads it before configuring the provider.
+- `log_archive_role_name` picks the role per runner: CI plan/apply roles via
+  `TF_VAR_` in the workflow, `OrganizationAccountAccessRole` locally (the CI
+  roles trust only the CI roles).
+- Trail ARN built from parts in `locals`: the bucket policy must name the
+  trail before it exists, so referencing the resource would be a cycle.
+- Lifecycle: expire at day 366, noncurrent versions 1 day later, then clean
+  up delete markers. Lifecycle never deletes a locked version.
+
+**Workflow** is now a matrix over `01-guardrails` and `02-logging`. Plans run
+for both on every PR; apply runs one stage at a time, each behind its own
+`management` approval (so two approvals per merge for now).
+
+**Next:** review the CI plan on the PR, merge to apply (Object Lock is
+permanent), then test (sandbox change in the bucket, `validate-logs`), then
+the log-bucket SCP in a separate PR.
+
+---
+
 ## 2026-10-16 (later) — roadmap step 4 started: bootstrap prerequisites
 
 ADR 0008 accepted (org trail in management, Object Lock governance 365 days,

@@ -1,0 +1,70 @@
+# 02-logging
+
+The organization's audit log (roadmap step 4): one CloudTrail trail covering
+every account and region, delivering to a locked bucket in `log-archive`.
+Decisions and trade-offs are in
+[ADR 0008](../../docs/decisions/0008-organization-trail-and-log-archive.md).
+
+## What it creates
+
+| Resource | Account | Notes |
+|---|---|---|
+| S3 bucket `landing-zone-org-trail-<log-archive id>` | log-archive | Object Lock (governance, 365 days), versioning, lifecycle expiry after the lock, SSE-S3, ACLs off, public access blocked, `prevent_destroy` |
+| Bucket policy | log-archive | Only `cloudtrail.amazonaws.com` writes, only for our trail (`aws:SourceArn`); non-TLS denied |
+| Organization trail `landing-zone-org-trail` | management | All regions, global service events, management events only, log file validation |
+
+**Cannot be undone:** Object Lock stays on for the life of the bucket, and each
+log file can't be deleted for a year after it's written. The bucket can only
+go once every lock has run out.
+
+Cost: no fixed monthly cost. The first copy of management events is free;
+S3 storage and PUTs for one person's activity are cents a month.
+
+## Two accounts, one stage
+
+The bucket lives in `log-archive`, the trail in management, and the trail
+can't exist before the bucket policy allows it to write. Keeping both in one
+stage makes that order a `depends_on` instead of a note in a README.
+
+The second provider (`aws.log_archive`) assumes a role in log-archive:
+
+| Who runs it | Role in log-archive | Set by |
+|---|---|---|
+| CI, pull request | `ci/landing-zone-ci-logging-plan` | workflow env |
+| CI, apply on `main` | `ci/landing-zone-ci-logging-apply` | workflow env |
+| Locally | `OrganizationAccountAccessRole` | `terraform.tfvars` |
+
+The CI roles are created by `00-bootstrap` (`log-archive-access.tf`) and can
+only touch the bucket's configuration, never the log files. They trust only
+the matching CI role in management, so a local admin session can't assume
+them; that's why local runs use `OrganizationAccountAccessRole`.
+
+## Running it
+
+Normally through CI: open a PR to see the plan, merge to apply (approval in
+the `management` environment). Locally, for a read-only plan:
+
+```powershell
+aws sso login --profile management-admin
+cd stages/02-logging
+$env:AWS_PROFILE = "management-admin"
+terraform init "-backend-config=backend.hcl"   # bucket name, gitignored
+terraform plan
+```
+
+`terraform.tfvars` (gitignored) holds `management_account_id` and
+`log_archive_role_name = "OrganizationAccountAccessRole"`.
+
+## Checking it works
+
+```powershell
+# Logging is on, and when the last delivery happened
+aws cloudtrail get-trail-status --name landing-zone-org-trail --profile management-admin
+
+# No log file changed or removed since the trail started (digests arrive hourly)
+aws cloudtrail validate-logs --trail-arn <trail_arn output> --start-time 2026-10-23T00:00:00Z --profile management-admin
+```
+
+Then make a harmless change in `sandbox` and look for it under
+`AWSLogs/<organization id>/<sandbox id>/` in the bucket, from `log-archive-admin`
+(delivery takes up to about 15 minutes).
