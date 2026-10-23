@@ -17,4 +17,11 @@ locals {
   # 00-bootstrap creates; a typo in a lookup below fails the plan loudly
   # ("Invalid index") rather than attaching to the wrong place.
   ou_ids = { for ou in data.aws_organizations_organizational_units.top_level.children : ou.name => ou.id }
+
+  # For the log-bucket SCP. [0] fails the plan if the account is renamed,
+  # instead of quietly building a policy for a bucket that doesn't exist.
+  log_archive_account_id = [
+    for account in data.aws_organizations_organization.this.accounts : account.id
+    if account.name == "log-archive"
+  ][0]
 }

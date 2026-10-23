@@ -61,10 +61,16 @@ terraform plan
 # Logging is on, and when the last delivery happened
 aws cloudtrail get-trail-status --name landing-zone-org-trail --profile management-admin
 
-# No log file changed or removed since the trail started (digests arrive hourly)
-aws cloudtrail validate-logs --trail-arn <trail_arn output> --start-time 2026-10-23T00:00:00Z --profile management-admin
+# No log file changed or removed since the trail started (digests arrive hourly).
+# Run from log-archive-admin: it reads the digests from the bucket with your own
+# credentials, and management can't read that bucket (only CloudTrail can write,
+# only log-archive can read). An organization trail is validated one account at
+# a time, so --account-id is required.
+aws cloudtrail validate-logs --trail-arn <trail_arn output> --account-id <account id> --start-time 2026-10-23T13:30:00Z --profile log-archive-admin
 ```
 
-Then make a harmless change in `sandbox` and look for it under
-`AWSLogs/<organization id>/<sandbox id>/` in the bucket, from `log-archive-admin`
-(delivery takes up to about 15 minutes).
+Then make any call in `sandbox` (read calls are logged too, e.g.
+`aws s3api list-buckets --profile sandbox-admin`) and look for it under
+`AWSLogs/<organization id>/<sandbox id>/CloudTrail/` in the bucket, from
+`log-archive-admin`. Delivery took about a minute on 2026-10-23; AWS says
+typically within 5 minutes, up to 15.
