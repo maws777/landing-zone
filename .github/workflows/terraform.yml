@@ -15,11 +15,13 @@ on:
   pull_request:
     paths:
       - "stages/01-guardrails/**"
+      - "stages/02-logging/**"
       - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
       - "stages/01-guardrails/**"
+      - "stages/02-logging/**"
       - ".github/workflows/terraform.yml"
 
 # Default for every job: read the repo, nothing else. Jobs that talk to AWS add
@@ -29,7 +31,6 @@ permissions:
 
 env:
   AWS_REGION: eu-west-3
-  WORKDIR: stages/01-guardrails
   TF_IN_AUTOMATION: "1"
   TF_INPUT: "0"
   TF_VAR_management_account_id: ${{ vars.MANAGEMENT_ACCOUNT_ID }}
@@ -38,12 +39,24 @@ jobs:
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # One job per stage. Every stage is planned on every PR: plans are read-only
+    # and cheap, and a path filter per stage would be one more thing to get
+    # wrong. fail-fast off so one stage's failure doesn't hide the other's plan.
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [01-guardrails, 02-logging]
     permissions:
       contents: read
       id-token: write
+    env:
+      # Used by 02-logging only; Terraform ignores TF_VAR_ for a variable a
+      # stage doesn't declare. The plan role can only chain into its own
+      # counterpart in log-archive (00-bootstrap/ci-identity.tf).
+      TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-plan
     defaults:
       run:
-        working-directory: ${{ env.WORKDIR }}
+        working-directory: stages/${{ matrix.stage }}
     steps:
       # Actions are pinned to commit SHAs, not tags: a tag can be moved to new
       # code, a SHA can't. These jobs hold AWS credentials, so that matters.
@@ -84,16 +97,27 @@ jobs:
     # becomes ...:environment:management. It also pauses the job until the
     # environment's required reviewer approves.
     environment: management
-    # Never two applies at once; queue rather than cancel a running apply.
+    # Stages apply one at a time, each behind its own approval. GitHub starts
+    # them in list order in practice but doesn't promise it, so anything that
+    # truly depends on another stage (the log-bucket SCP needs the bucket) goes
+    # in a later PR, not the same merge.
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        stage: [02-logging, 01-guardrails]
+    # Never two applies of the same stage at once; queue rather than cancel.
     concurrency:
-      group: terraform-apply-01-guardrails
+      group: terraform-apply-${{ matrix.stage }}
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
+    env:
+      TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-apply
     defaults:
       run:
-        working-directory: ${{ env.WORKDIR }}
+        working-directory: stages/${{ matrix.stage }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
