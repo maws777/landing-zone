@@ -10,9 +10,9 @@ re-deriving where things stood. Newest session first.
 Read this block first; the entries below have the detail if needed.
 
 **State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access)
-done. Step 4 (logging) in progress:** ADR 0008 accepted, bootstrap
-prerequisites applied locally (CloudTrail service-linked role, narrow CI roles
-in log-archive). No bucket, no trail yet.
+done. Step 4 (logging) almost done:** org trail live since 2026-10-23,
+delivering to the Object Lock bucket in log-archive, verified end to end.
+Only the log-bucket SCP is left.
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
@@ -50,44 +50,23 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Git, before anything else (checked 2026-10-23):**
+**Next: the log-bucket SCP (last part of step 4)**, in `01-guardrails`, its
+own PR now that the bucket exists:
 
-- **PR #6** (`root-access/centralize`, 5 commits: step 2 close-out, step 3,
-  step 4 plan, app design) is open, mergeable, no CI checks (docs +
-  bootstrap only, which CI doesn't run). Merge it. It already contains the
-  `docs/scp-step2-done` commit, so that branch needs no PR of its own.
-- **`logging/org-trail`** = PR #6 + one commit (`8f069c6`, ADR 0008 +
-  bootstrap prerequisites). **Not pushed.** After #6 merges, push it; it
-  becomes its own PR or carries on with `02-logging`.
-- Stale local branches (`docs/scp-step2-done`, `scp/baseline`,
-  `ci/github-oidc`) can be deleted once #6 is in.
+- Deny changing the log bucket's policy, Object Lock configuration,
+  lifecycle, versioning or public access block, deny deleting it, and deny
+  `s3:BypassGovernanceRetention`, for everyone in member accounts except
+  `ci/landing-zone-ci-logging-apply`.
+- Test from `log-archive-admin` (should be denied) and check CI can still
+  plan/apply `02-logging`.
+- Test whether it blocks an `AssumeRoot` `S3UnlockBucketPolicy` session (open
+  question in ADR 0008).
+- 4 of 5 SCP slots at the root after this; consider folding into
+  `baseline-protections` instead if the 5,120-character limit allows.
+- Then mark step 4 done in CLAUDE.md and here.
 
-**Next: finish roadmap step 4 (logging).** Decided in ADR 0008: org trail in
-management (all regions, management events only, log file validation),
-bucket in log-archive (Object Lock governance 365 days, lifecycle expiry,
-SSE-S3, only CloudTrail writes with `aws:SourceArn` pinned), CI reaches
-log-archive through the narrow roles bootstrap made (option B). Remaining
-order:
-
-1. **`stages/02-logging`**: two providers (management + log-archive via
-   `ci/landing-zone-ci-logging-{plan,apply}`), bucket first, then trail.
-   Bucket name `landing-zone-org-trail-<log-archive id>` is already baked
-   into the CI role policies, so it must match exactly.
-2. **Workflow:** add `02-logging` to `terraform.yml` (today it only runs
-   `01-guardrails`; paths filter + `WORKDIR` → matrix).
-3. **Apply via CI**, bucket then trail. Flag before apply: Object Lock can't
-   be undone, and a year of logs can't be deleted early.
-4. **Test:** a change in sandbox shows up in the bucket; `aws cloudtrail
-   validate-logs` passes.
-5. **SCP** in `01-guardrails`: deny weakening/deleting the log bucket and
-   `s3:BypassGovernanceRetention` in members, except the log-archive CI apply
-   role. Test from `log-archive-admin`. Also test whether it blocks an
-   `AssumeRoot` `S3UnlockBucketPolicy` session (open question in ADR 0008).
-6. Mark step 4 done in CLAUDE.md, update this block.
-
-**Watch for:** if the CI trail apply fails with AccessDenied on
-`iam:CreateServiceLinkedRole` or `organizations:EnableAWSServiceAccess`, add
-the narrowest version (see the 2026-10-16 (later) entry).
+**Checking the logs:** `validate-logs` from `log-archive-admin` with
+`--account-id` (see `stages/02-logging/README.md`).
 
 **After step 4:** step 5 (move state bucket into log-archive), step 6
 (restrict `OrganizationAccountAccessRole`, read-only permission set), step 7
@@ -111,6 +90,43 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-10-23 (later) — org trail live and verified
+
+PR #7 merged; CI apply (two approvals): `02-logging` 9 added, `01-guardrails`
+no changes.
+
+**Verified:**
+
+- Trail: `IsLogging` true, organization trail, multi-region, validation on,
+  home `eu-west-3`. No delivery errors.
+- Bucket: Object Lock `GOVERNANCE` 365 days, versioning on.
+- Test: `aws s3api list-buckets --profile sandbox-admin` at 13:35Z showed up
+  as `ListBuckets` under `AWSLogs/<org id>/<sandbox id>/CloudTrail/eu-west-3/`
+  about a minute later. That log file's retention: `GOVERNANCE` until
+  2027-10-23. The lock applies automatically, with no header from CloudTrail.
+- `validate-logs`: 1/1 digest valid for sandbox and management. That first
+  digest (13:31Z) predates the first log files, so the files themselves are
+  covered by the next hourly digest. **Re-run after ~14:40Z** to see
+  log files validated, not only the digest.
+
+**Learned:**
+
+- `validate-logs` on an organization trail needs `--account-id` (one account
+  at a time).
+- It reads the bucket with *your* credentials. From `management-admin` it
+  fails with AccessDenied on `s3:GetBucketLocation`: correct, because the
+  bucket policy grants CloudTrail only and management is another account. Run
+  it from `log-archive-admin`; member accounts can see the org trail.
+- My background wait loop said "nothing after 20 min" while the files were
+  already there: the `KeyCount` query doesn't survive the CLI's
+  auto-pagination. The check was broken, not the delivery. Listing keys
+  directly is the reliable test.
+
+**Next:** the log-bucket SCP in `01-guardrails` (separate PR). Then mark step
+4 done.
 
 ---
 
