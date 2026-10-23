@@ -50,8 +50,9 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Next: the log-bucket SCP (last part of step 4)**, in `01-guardrails`, its
-own PR now that the bucket exists:
+**Next: the log-bucket SCP (last part of step 4)** is written as PR
+`scp/log-archive-protection` (see the 2026-10-23 evening entry); merge to
+apply, then test. The plan it follows:
 
 - Deny changing the log bucket's policy, Object Lock configuration,
   lifecycle, versioning or public access block, deny deleting it, and deny
@@ -90,6 +91,41 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-10-23 (evening) — log-bucket SCP written, not applied
+
+SCP checklist first: root has `FullAWSAccess`, `region-restriction`,
+`baseline-protections`; every OU and account only `FullAWSAccess`. As expected.
+
+New `log-archive-protection` in `01-guardrails` (`scp-log-archive.tf`),
+attached at the root (4 of 5 slots). Local plan: 2 to add (policy +
+attachment), 0 to change, 0 to destroy.
+
+- **Bucket config** (policy, Object Lock, lifecycle, versioning, encryption,
+  public access block, ownership, ACL, delete bucket): denied except for
+  `ci/landing-zone-ci-logging-apply`, matched on `aws:PrincipalArn`.
+- **Log files** (delete object/version, bypass governance, change retention,
+  put object): denied with no exception. CloudTrail still writes because SCPs
+  don't bind service principals; that's what lets us deny `PutObject`
+  (forged log files) at all.
+- Skipped the Sandbox-first rollout: the bucket isn't in Sandbox, and the
+  policy names one bucket ARN, so the root can't be affected elsewhere.
+- Consequence: `02-logging` can no longer be applied locally with
+  `OrganizationAccountAccessRole`; bucket changes go through CI only. Plans
+  still work (reads aren't denied).
+
+**Tests after apply** (in the guardrails README): `put-bucket-versioning`
+re-setting `Enabled` and `delete-object-version` on a fake ID with bypass,
+both from `log-archive-admin`, both harmless if they succeed. Then confirm
+delivery continues.
+
+**Not tested, needs a decision:** whether the SCP also stops an `AssumeRoot`
+`S3UnlockBucketPolicy` session (ADR 0008 open question). Member root is bound
+by SCPs, so it should be denied, but the only real test is trying
+`delete-bucket-policy`, and if it *succeeds* the bucket policy is gone and
+CloudTrail delivery breaks until CI re-applies `02-logging`. Ask first.
 
 ---
 

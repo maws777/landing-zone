@@ -10,9 +10,10 @@ rather than from a laptop.
 |---|---|---|
 | `baseline-protections` | Leaving the organization; closing an account from inside it; any use of a member account's root password or keys (short-lived `AssumeRoot` sessions still work) | Organization root |
 | `region-restriction` | Any action outside `eu-west-3`, except global services (list copied from AWS's Region deny control) | Organization root |
+| `log-archive-protection` | Changing or deleting the CloudTrail bucket's configuration (except the log-archive CI apply role); deleting, unlocking, re-locking or writing log files (no exception) | Organization root |
 
-Why each statement exists is commented in `scp-baseline.tf` and
-`scp-region.tf`. The reasoning behind the overall approach is in
+Why each statement exists is commented in `scp-baseline.tf`,
+`scp-region.tf` and `scp-log-archive.tf`. The reasoning behind the overall approach is in
 [ADR 0006](../../docs/decisions/0006-scp-strategy.md).
 
 Cost: none. SCPs are free.
@@ -61,10 +62,31 @@ aws iam list-roles --max-items 1 --profile sandbox-admin
 
 Leaving the organization is tested by reading the policy, not by trying it.
 
+### Testing `log-archive-protection`
+
+From `log-archive-admin` (admin in the account that owns the bucket). Each
+call below is harmless if it unexpectedly succeeds, which is why these were
+picked:
+
+```powershell
+$b = "landing-zone-org-trail-<log-archive id>"
+
+# Re-sets the value it already has. Expect: explicit deny in an SCP
+aws s3api put-bucket-versioning --bucket $b --versioning-configuration Status=Enabled --profile log-archive-admin
+
+# A version ID that doesn't exist. Expect: explicit deny in an SCP
+# (without the SCP: an invalid-version error, nothing deleted)
+aws s3api delete-object-version --bucket $b --key does-not-exist --version-id 0000 --bypass-governance-retention --profile log-archive-admin
+
+# Reading still works
+aws s3api get-bucket-versioning --bucket $b --profile log-archive-admin
+```
+
+Then check CloudTrail still delivers (`get-trail-status`, `LatestDeliveryTime`
+moves on): the trail writes as a service principal, which SCPs don't bind.
+
 ## Deliberately not here yet
 
-- **CloudTrail and log-bucket protection.** Moves to roadmap step 4, written
-  together with the org trail and the log-archive bucket it protects.
 - **A relaxed Sandbox variant.** Nothing above blocks the risky changes the
   detective demos need (a public bucket, SSH open to the world), so there is
   nothing to relax. It becomes real when Workloads gets stricter preventive

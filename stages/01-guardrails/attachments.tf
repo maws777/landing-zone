@@ -9,8 +9,13 @@
 #      escape a guardrail by being put somewhere new. (The management account
 #      stays exempt; SCPs never apply to it.)
 #
-# Limit to keep in mind: at most 5 SCPs per target, and FullAWSAccess already
-# uses one of them at the root.
+# log-archive-protection skips the Sandbox step: the bucket it protects isn't
+# in Sandbox, so there is nothing to test there. It names one bucket ARN, so
+# at the root it can't affect anything else.
+#
+# Limit to keep in mind: at most 5 SCPs per target. At the root: FullAWSAccess
+# + the three below = 4 of 5. The Bedrock exception (step 8) goes inside
+# region-restriction, not into a new policy.
 
 locals {
   scp_targets = {
@@ -18,8 +23,9 @@ locals {
   }
 
   policies = {
-    baseline = aws_organizations_policy.baseline.id
-    region   = aws_organizations_policy.region.id
+    baseline    = aws_organizations_policy.baseline.id
+    region      = aws_organizations_policy.region.id
+    log_archive = aws_organizations_policy.log_archive.id
   }
 
   # Every policy on every target: "baseline/sandbox" => { policy_id, target_id }
