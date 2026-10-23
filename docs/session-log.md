@@ -5,20 +5,19 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-10-07)
+## Resume here (updated 2026-10-16)
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap step 2 (SCPs), rollout step 2 of 2 in a PR.**
+**State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access) done.**
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
-- **SCPs:** `baseline-protections` (now also denies `account:CloseAccount`) +
-  `region-restriction` (Terraform, `01-guardrails`). Live on the **Sandbox OU**;
-  PR `scp/root-rollout` moves them to the **root**. Also at the root, besides
-  `FullAWSAccess`: the hand-made `DenyLeaveAndCloseAccount` from Day 0 that
-  Terraform doesn't manage (see the 2026-09-30 entry), to be deleted after the
-  PR is applied.
+- **SCPs at the root:** `FullAWSAccess`, `baseline-protections` (deny leave
+  org, close account, long-term root credentials) and `region-restriction`
+  (only `eu-west-3` + global services). Both ours are Terraform, `01-guardrails`.
+  3 of 5 slots used. Every SCP in the org is in Terraform; the Day 0 manual
+  one is deleted.
 - 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
   `AdministratorAccess` on all of them via Identity Center.
 - Terraform state in **S3** with native locking. Bucket name in gitignored
@@ -44,14 +43,43 @@ terraform plan    # expect: No changes
   environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
   stages need their permissions added in `ci-identity.tf` first (local apply).
 
-**Next: finish roadmap step 2.**
+**Roadmap step 3 done (ADR 0007):** centralized root access on, all six
+member roots without credentials, password recovery refused (tested).
+Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-1. Merge PR `scp/root-rollout`, approve the apply at the `management` gate.
-2. Retest from `staging-admin`: us-east-1 now denied, eu-west-3 and IAM work.
-   Check `list-policies-for-target` on the root shows both policies.
-3. Only then detach and delete `DenyLeaveAndCloseAccount` (`p-l3whi2wf`) from
-   the root (CLI, management account). Order matters: the `CloseAccount` deny
-   in `baseline-protections` must be live at the root first.
+**Before anything else:** branch `root-access/centralize` (2 commits) is
+**not pushed yet**, and the docs PR `docs/scp-step2-done` isn't merged. Merge
+the docs PR, then push and PR `root-access/centralize` (no CI plan, docs +
+bootstrap only).
+
+**Next: roadmap step 4, logging.** Discussed 2026-10-07, nothing built:
+
+- **Org trail** in management: multi-region (global services log in
+  us-east-1; SCP-denied calls get logged too), log file validation on
+  (signed hourly digests, `aws cloudtrail validate-logs`).
+- **Bucket in log-archive:** bucket policy lets only CloudTrail write, pinned
+  with `aws:SourceArn` to our trail (confused deputy); Object Lock; lifecycle
+  expiry; encryption.
+- **SCP** (deferred from step 2): deny weakening the log bucket in
+  log-archive, deny `StopLogging`/`DeleteTrail` in members. The org trail
+  itself sits in management, outside SCPs. Test from `log-archive-admin`,
+  not Sandbox (the bucket isn't there).
+- **New concept: cross-account Terraform.** Stage `02-logging` needs a second
+  provider assuming a role in log-archive. Option A: CI assumes
+  `OrganizationAccountAccessRole` (full admin). Option B: bootstrap creates a
+  narrow CI role in log-archive.
+- **Proposed decisions (to confirm, then ADR 0008):** Object Lock
+  **governance** mode, **1 year** retention, **SSE-S3**, **option B**. Open:
+  trail managed from management vs delegated to `security`.
+- **Costs (estimates, check pricing pages first):** first copy of management
+  events free; S3 storage + PUTs cents/month; no data events, Lake or
+  Insights; KMS would be ~$1/month fixed. Retention length is the real lever.
+- **Order:** decisions + ADR → bootstrap (CI role in log-archive, trail
+  permissions, local apply) → `02-logging` via CI (bucket, then trail) →
+  test (sandbox change shows up in the bucket, `validate-logs`) → SCP.
+
+**Checklist before writing any SCP:** `list-policies-for-target` on the root,
+every OU *and every account*.
 
 **Gotchas learned**
 
@@ -65,14 +93,141 @@ terraform plan    # expect: No changes
 **Open, not blocking:** whether to keep the `Co-Authored-By: Claude` trailer on
 commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 
-**Idea parked (2026-09-29): note-taking MCP.** The MCP server could become
-a note tool I write to and search through Claude, including claude.ai on the
-web. That would answer the corpus question. It raises three questions for later
-ADRs: write tools make prompt injection more dangerous (use scoped tokens, no
-hard-delete, keep versions); an always-on tool conflicts with deploying the app
-only for demos (always-on cheap core + demo stack?); and whether I also want my
-own web UI. Details are in CLAUDE.md roadmap step 8. Don't start until the
-landing zone is done.
+**App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
+note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
+Don't start until the landing zone is done.
+
+---
+
+## 2026-10-16 — app design: calorie-tracking MCP (nothing built)
+
+Design discussion only; no AWS changes. The full design lives in CLAUDE.md
+roadmap step 8; this is the short version plus what was verified.
+
+- **Concept:** Claude estimates nutrition itself and calls tools with
+  structured values; the server validates and stores. No food database, so no
+  embeddings or pgvector.
+- **Architecture:** always-on serverless core (API Gateway HTTP API → Lambda →
+  DynamoDB, Cognito), ~€1/month. A read-only dashboard website (S3 +
+  CloudFront, iPhone home-screen PWA) with the day's table, targets, trends,
+  leftovers and an AI summary + tips from Bedrock (Haiku-class), cached and
+  regenerated only when entries change; "memory" from computed stats + the
+  model's own diary notes. An evening email via SES was considered first and
+  dropped the same day in favour of the website. Meal-prep batches with atomic
+  decrement (DynamoDB transactions) and idempotency keys. ECS/ALB/WAF demo
+  stack demoted to an optional stretch goal; the VPC half of step 7 waits with
+  it.
+
+**Limitations checked against current docs:**
+
+| Concern | Finding | Consequence |
+|---|---|---|
+| Cognito with claude.ai | Cognito supports neither CIMD nor DCR. claude.ai offers "Use your own OAuth client" (pre-registration); MCP spec 2026-07-28 lists pre-registration first in its priority order. | Works: Cognito public app client + PKCE, callback `https://claude.ai/api/mcp/auth_callback`. Spike still needed for discovery (OIDC vs RFC 8414) and token validation (no `aud` in Cognito access tokens). |
+| Bedrock model in Paris | Claude Haiku 5.5: no in-region endpoint in `eu-west-3`; EU geo profile routes to 6 EU regions. A call fails if the SCP blocks any destination. | `region-restriction` needs a narrow Bedrock exception for those EU regions (ADR at step 8). The comment in `scp-region.tf` still says "embeddings"; fix it then. |
+| WAF on HTTP API | Not supported (WAF attaches to REST API, ALB, CloudFront). | Rate limiting via API Gateway throttling on the core; WAF only on the demo stack. |
+| MCP on Lambda | Spec 2026-07-28 removed protocol-level sessions. | Stateless Lambda is a natural fit. |
+| PWA on iPhone | Add to Home Screen + `display: standalone` works (Safari, and other browsers since iOS 16.4); home-screen apps are exempt from Safari's 7-day storage deletion. | Works. Risk: OAuth redirect from Cognito back into the standalone app; test on the phone first. |
+| CloudFront certificate | ACM certs for CloudFront must be in `us-east-1`. | `acm:*` is already region-exempt; Terraform needs a us-east-1 provider alias. |
+
+Sources: claude.com/docs/connectors/custom/remote-mcp,
+modelcontextprotocol.io/specification/2026-07-28 (client registration),
+AWS Bedrock model card for Claude Haiku 5.5, AWS Bedrock cross-Region
+inference docs.
+
+**First task of step 8:** two spikes before building anything: claude.ai →
+Cognito pre-registered client → token validated in Lambda, and iPhone PWA →
+Cognito login → redirect back into the standalone app.
+
+---
+
+## 2026-10-07 (later) — roadmap step 3: centralized root access
+
+### Why
+
+Each member account has its own root user, identified by its root email. All
+six are `+` aliases of one Gmail inbox, and accounts made by Organizations
+have no root password but allow "Forgot password". So whoever reads that inbox
+can become root in any member account. The SCP from step 2 makes such a login
+useless (every action denied), but the login itself works, and an SCP can be
+detached. Centralized root access removes the login.
+
+### Done
+
+**Checked the docs and the live state first.** IAM user guide pages on root
+access, the Terraform resource docs (`aws_iam_organizations_features`, in
+provider 6.66.0 already). Live: trusted access `cloudtrail` + `sso` only;
+`list-organizations-features` failed with `ServiceAccessNotEnabledException`;
+no delegated administrators.
+
+**Decisions (ADR 0007):** both features (`RootCredentialsManagement` +
+`RootSessions`) from `00-bootstrap`, local apply (it owns the trusted-access
+list, and CI shouldn't get `iam:EnableOrganizations*`). No delegated
+administrator: one operator, so it would only be a second place able to become
+root everywhere. Deletion per account by script, not Terraform.
+
+**Terraform:** `iam.amazonaws.com` added to the trusted-access list in
+`organization.tf`; new `root-access.tf` with `depends_on` the organization
+(no reference between them, and IAM refuses the features before trusted
+access exists). Plan saved to a file: `1 to add, 1 to change, 0 to destroy`,
+the change adding `iam` with `sso` and `cloudtrail` as the "2 unchanged
+elements". The apply was run by me from the terminal (Claude's permission
+check blocked it running the apply itself): `1 added, 1 changed, 0 destroyed`.
+
+**Verified after apply:** trusted access `cloudtrail` + `iam` + `sso`;
+`list-organizations-features` returns `RootSessions` +
+`RootCredentialsManagement`; `staging-admin` SSO still works; bootstrap plan
+`No changes`.
+
+**Task policies read before scripting.** `IAMAuditRootUserCredentials` and
+`IAMDeleteRootUserCredentials` are Deny-only: deny every action except a short
+list (`NotAction`), and deny those on anything but `arn:aws:iam::*:root`
+(`NotResource`). The root session starts as full root and the task policy
+cuts it down. Both allow the `List*`/`Get*` calls, so one delete session can
+check, delete and re-check.
+
+**`scripts/root-credentials.ps1`:** `-Action Audit|Delete`, all member
+accounts by default, refuses the management account. Root session
+credentials are put in env vars only for each call and `AWS_PROFILE` is
+cleared during it, so a call can't fall back to the management account.
+`Delete` uses `ShouldProcess` (asks first) and audits after.
+
+**Audit result: all six member roots already have no credentials**
+(`password=False keys=0 certs=0 mfa=0` everywhere). Expected: Organizations
+creates accounts without a root password, and none was ever set. So `Delete`
+was not run; nothing to delete. The change that matters is the feature itself:
+before, "no password" still allowed "Forgot password" from the inbox; with
+`RootCredentialsManagement` on, AWS docs say member accounts can't recover the
+root password unless management runs "Allow password recovery" first.
+
+**Verified by hand, end to end.** Root sign-in page → sandbox root email →
+"Forgot password". AWS **still sent the reset email**. Following the link
+gave: *"Password recovery failed. Password recovery is disabled for your AWS
+account. Please contact your administrator for further assistance."* So the
+block is enforced at the reset step, not when the email is sent. The email
+alone looked like a failed control. Lesson: test a control all the way
+through, not just the first visible step. (Side effect: anyone can still make
+AWS send these emails, but they lead nowhere.)
+
+**Roadmap step 3 is done.**
+
+**Interview version:** member accounts have no root credentials, and password
+recovery from the root inbox is disabled org-wide (tested: the reset link is
+refused). Root-only tasks go through 15-minute `sts:AssumeRoot` sessions from
+the management account, each scoped to one task by a deny-only task policy and
+logged in CloudTrail under a named Identity Center user. The step 2 SCP stays
+as a second layer if a root login ever comes back.
+
+### Gotchas
+
+- **`[Environment]::SetEnvironmentVariable($n, $null)` doesn't remove the
+  variable from PowerShell:** PowerShell passes `$null` to a .NET string
+  parameter as `""`. The first audit run set `AWS_PROFILE` to empty and the
+  CLI failed with `The config profile () could not be found`. It failed closed
+  (no fallback to the management account). Fixed with `Remove-Item Env:...`.
+
+- `$Profile` is a PowerShell automatic variable (path to the profile script);
+  the script uses `$ManagementProfile`.
+- `sts:AssumeRoot` has no global endpoint; the script passes `--region`.
 
 ---
 
@@ -109,6 +264,35 @@ policy is gone, leaving room for step 4's CloudTrail deny.
 
 `local.ou_ids` is unused for now but kept: the next new policy is attached to
 Sandbox first, same rollout path.
+
+Merged as PR #5, CI plan matched the local one, apply approved at the gate.
+
+**Verified after apply:**
+
+| Test | Result |
+|---|---|
+| SCPs on the root | `FullAWSAccess`, `DenyLeaveAndCloseAccount`, `region-restriction`, `baseline-protections` ✔ |
+| SCPs attached directly to the Sandbox OU | only `FullAWSAccess` (ours inherited from the root) ✔ |
+| `staging-admin` → us-east-1 | explicit SCP deny naming `p-lrhf34ue` ✔ (worked before this PR) |
+| `staging-admin` → eu-west-3, `iam list-roles` | work ✔ |
+| `sandbox-admin` → us-east-1 | still denied, now by inheritance ✔ |
+| `management-admin` → us-east-1 | works ✔ (SCPs never apply to management) |
+| Live `baseline-protections` content | includes `DenyCloseAccount` ✔ |
+
+**Day 0 policy removed.** With `DenyCloseAccount` confirmed live at the root,
+`DenyLeaveAndCloseAccount` (`p-l3whi2wf`) was detached from the root and
+deleted with the CLI. Checked afterwards: `describe-policy` returns
+`PolicyNotFoundException`, the org has exactly three SCPs (`FullAWSAccess` and
+ours), and `terraform plan` in `01-guardrails` still says `No changes`.
+ADR 0006 got a dated update note rather than an edit to the decision.
+
+**Roadmap step 2 is done.**
+
+**Interview version:** two deny-list SCPs at the org root, rolled out through
+the Sandbox OU first and tested from a real member account. A manual policy
+found by auditing the API, not memory, was replaced by a Terraform-managed
+statement in the safe order: new deny live and verified first, old one removed
+after.
 
 ---
 
