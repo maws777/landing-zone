@@ -10,9 +10,9 @@ re-deriving where things stood. Newest session first.
 Read this block first; the entries below have the detail if needed.
 
 **State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access)
-done. Step 4 (logging) almost done:** org trail live since 2026-10-23,
-delivering to the Object Lock bucket in log-archive, verified end to end.
-Only the log-bucket SCP is left.
+done. Step 4 (logging) done 2026-10-23:** org trail delivering to the
+Object Lock bucket in log-archive, `log-archive-protection` SCP at the root,
+all verified.
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
@@ -50,21 +50,22 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Next: the log-bucket SCP (last part of step 4)** is written as PR
-`scp/log-archive-protection` (see the 2026-10-23 evening entry); merge to
-apply, then test. The plan it follows:
+**Next: roadmap step 5, move Terraform state into log-archive.** Needs a
+design pass first (nothing decided):
 
-- Deny changing the log bucket's policy, Object Lock configuration,
-  lifecycle, versioning or public access block, deny deleting it, and deny
-  `s3:BypassGovernanceRetention`, for everyone in member accounts except
-  `ci/landing-zone-ci-logging-apply`.
-- Test from `log-archive-admin` (should be denied) and check CI can still
-  plan/apply `02-logging`.
-- Test whether it blocks an `AssumeRoot` `S3UnlockBucketPolicy` session (open
-  question in ADR 0008).
-- 4 of 5 SCP slots at the root after this; consider folding into
-  `baseline-protections` instead if the 5,120-character limit allows.
-- Then mark step 4 done in CLAUDE.md and here.
+- The state bucket is in management (bootstrap chicken-and-egg). Target: a new
+  bucket in log-archive, cross-account bucket policy, and a role the stages
+  assume for the backend; then `terraform init -migrate-state` per stage.
+- The new `log-archive-protection` SCP names only the CloudTrail bucket, so it
+  doesn't affect a state bucket, but a similar protection for state is worth
+  deciding.
+- CI's state permissions (`ci-identity.tf`, `ci_state`) and the
+  `STATE_BUCKET` repo variable move with it; bootstrap's state key stays
+  denied to CI.
+- Write an ADR.
+
+**Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
+(ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
 
 **Checking the logs:** `validate-logs` from `log-archive-admin` with
 `--account-id` (see `stages/02-logging/README.md`).
@@ -91,6 +92,35 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-10-23 (closing) — log-bucket SCP live, step 4 done
+
+PRs #8 and #9 merged; CI apply (two approvals): `02-logging` no changes,
+`01-guardrails` 2 added.
+
+**Tests, all from `log-archive-admin` (admin in the bucket's own account):**
+
+| Test | Result |
+|---|---|
+| `put-bucket-versioning Status=Enabled` | AccessDenied, explicit deny in an SCP |
+| `delete-object --version-id <real id> --key does-not-exist --bypass-governance-retention` | AccessDenied on `s3:DeleteObjectVersion`, explicit deny in an SCP |
+| `get-bucket-versioning` | works (`Enabled`) |
+| Delivery after the SCP (applied 14:27Z) | log file 14:31Z, digest 14:35Z, no errors |
+| `validate-logs` sandbox / management | 2/2 digests, 1/1 and 8/8 log files valid |
+
+**Learned:** S3 validates the version ID's format *before* authorization, so a
+made-up ID returns `InvalidArgument` and proves nothing. A real version ID on
+a nonexistent key is the safe way to reach the permission check. Also, the
+CLI has no `delete-object-version`; it's `delete-object --version-id`.
+
+**AssumeRoot unlock: not tested, on purpose.** Member-account root is bound
+by SCPs, so `S3UnlockBucketPolicy` should hit the same deny. The only real
+test deletes the bucket policy if it succeeds, which stops delivery until CI
+re-applies. Recorded as denied by design. If the bucket policy ever locks
+everyone out, the fix path is: detach `log-archive-protection` from
+management, unlock, re-attach.
 
 ---
 
