@@ -42,18 +42,26 @@ locals {
 }
 
 # Trust policy builder shared by both roles: same provider, same audience, a
-# different exact `sub`.
+# list of exact `sub` values.
 data "aws_iam_policy_document" "github_trust" {
   for_each = {
-    # Any pull request in this repo. PRs from forks never receive an OIDC token,
-    # so this effectively means branches pushed by people with write access.
-    plan = "${local.github_sub_prefix}:pull_request"
+    plan = [
+      # Any pull request in this repo. PRs from forks never receive an OIDC
+      # token, so this effectively means branches pushed by people with write
+      # access.
+      "${local.github_sub_prefix}:pull_request",
+
+      # A push to main, in a job with no environment: the plan that runs right
+      # after a merge, so the approver of the apply sees what they're approving.
+      # Still the read-only role; main only takes merged PRs.
+      "${local.github_sub_prefix}:ref:refs/heads/main",
+    ]
 
     # Only jobs that declare `environment: management`. The environment is where
     # the gates live: a required reviewer, and deployments limited to `main`.
     # A workflow edited to skip the environment gets a different `sub` and is
     # refused here, so the gate can't be bypassed from the YAML alone.
-    apply = "${local.github_sub_prefix}:environment:management"
+    apply = ["${local.github_sub_prefix}:environment:management"]
   }
 
   statement {
@@ -75,7 +83,7 @@ data "aws_iam_policy_document" "github_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [each.value]
+      values   = each.value
     }
   }
 }
