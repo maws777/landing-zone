@@ -74,9 +74,12 @@ $b = "landing-zone-org-trail-<log-archive id>"
 # Re-sets the value it already has. Expect: explicit deny in an SCP
 aws s3api put-bucket-versioning --bucket $b --versioning-configuration Status=Enabled --profile log-archive-admin
 
-# A version ID that doesn't exist. Expect: explicit deny in an SCP
-# (without the SCP: an invalid-version error, nothing deleted)
-aws s3api delete-object-version --bucket $b --key does-not-exist --version-id 0000 --bypass-governance-retention --profile log-archive-admin
+# Deleting past the lock. S3 checks the version ID's format before it checks
+# permissions, so a made-up ID only gets "Invalid version id". Use a real one
+# with a key that doesn't exist: a version ID belongs to one key, so this can't
+# match a real file. Expect: explicit deny in an SCP (s3:DeleteObjectVersion)
+$v = aws s3api list-object-versions --bucket $b --max-items 1 --query 'Versions[0].VersionId' --output text --profile log-archive-admin
+aws s3api delete-object --bucket $b --key does-not-exist --version-id $v --bypass-governance-retention --profile log-archive-admin
 
 # Reading still works
 aws s3api get-bucket-versioning --bucket $b --profile log-archive-admin
