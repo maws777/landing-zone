@@ -5,7 +5,8 @@ The first Terraform stage. Turns the hand-made organization from
 accounts everything later is built in.
 
 Runs in the **management account**, with local state at first, then migrated to
-S3. Region `eu-west-3`.
+S3 in management, and later to S3 in log-archive (step 7 below). Region
+`eu-west-3`.
 
 ## What it creates
 
@@ -15,7 +16,8 @@ S3. Region `eu-west-3`.
 | 4 OUs | Security, Infrastructure, Workloads, Sandbox |
 | 6 member accounts | log-archive, security, network, staging, prod, sandbox |
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
-| S3 state bucket | Versioned, SSE-S3, public access blocked, TLS-only |
+| S3 state bucket (management) | Versioned, SSE-S3, public access blocked, TLS-only. The day-one bucket, kept as a way back until step 5 is verified |
+| S3 state bucket (log-archive) | `state-log-archive.tf`: same settings plus history expiry, and CI state roles; ADR 0009 |
 | GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
 | Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
 
@@ -238,14 +240,48 @@ console → Root access management → the account → **Allow password recovery
 then reset the password from the account's root email. Delete the credentials
 again afterwards.
 
+### 7. Move state to log-archive (roadmap step 5, ADR 0009)
+
+`state-log-archive.tf` creates a second state bucket inside `log-archive` and
+the roles CI uses to reach it. Locally, the backend reads it with the
+`log-archive-admin` profile (a `profile` line in `backend.hcl`), while the
+provider keeps running as `management-admin`. One `aws sso login` covers both.
+
+The order matters, so CI and local runs never disagree about where state is:
+
+```powershell
+# 1. Create the bucket and roles. CI keeps using the old bucket meanwhile.
+$env:AWS_PROFILE = "management-admin"
+cd stages/00-bootstrap
+terraform plan "-out=step5.tfplan"
+terraform apply step5.tfplan
+Remove-Item step5.tfplan
+terraform output log_archive_state_bucket_name
+
+# 2. Point backend.hcl at the new bucket (see backend.hcl.example: bucket +
+#    profile), then copy state over. Answer "yes" to the copy prompt.
+#    Nothing may merge to main between here and step 3.
+terraform init "-backend-config=backend.hcl" -migrate-state
+terraform plan    # expect: No changes
+# Same in 01-guardrails and 02-logging, each with the new backend.hcl.
+
+# 3. PR that switches the workflow to the new bucket; its plans must show
+#    "No changes" for both stages.
+```
+
+`-migrate-state` copies; the old bucket still holds the last state of every
+stage. That's the way back: put the old `backend.hcl` back and run
+`-migrate-state` again. Once CI is verified on the new bucket, a clean-up
+change removes CI's old state permissions and then the old bucket.
+
 ## Decisions worth knowing
 
-**Why state lives in the management account.** The Organizations API can only be
-called from the management account, so this stage has to run there. State would
-be better placed in `log-archive` — separated from the account it manages — but
-log-archive doesn't exist until this stage creates it. That's the bootstrap
-chicken-and-egg. Moving it is roadmap step 5, and needs a cross-account bucket
-policy plus a role this stage assumes.
+**Where state lives.** The Organizations API can only be called from the
+management account, so this stage has to run there, and on day one its state
+had to be there too: log-archive didn't exist until this stage created it
+(the bootstrap chicken-and-egg). Step 5 moved state into `log-archive`, so the
+account that can change the organization no longer holds the map of it
+(ADR 0009).
 
 **Why the organization is imported.** An organization must exist before the
 Organizations API works at all, so it can't be Terraform's creation. An `import`

@@ -1,4 +1,10 @@
 # Copy to backend.hcl (gitignored) and fill in the real bucket name from
-# `terraform output state_bucket_name`. Kept out of backend.tf because the
-# name contains the management account ID, and the repo is public.
-bucket = "landing-zone-tfstate-<account-id>"
+# `terraform output log_archive_state_bucket_name`. Kept out of backend.tf
+# because the name contains an account ID, and the repo is public. The same
+# file works for every stage.
+bucket = "landing-zone-tfstate-<log-archive-account-id>"
+
+# State lives in log-archive (ADR 0009). The backend reads it with this
+# Identity Center profile, while the provider keeps using AWS_PROFILE
+# (management-admin). Locally only; CI passes assume_role instead.
+profile = "log-archive-admin"

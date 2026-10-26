@@ -1,5 +1,6 @@
 # Bucket name comes from -backend-config: backend.hcl locally (gitignored),
-# the STATE_BUCKET repository variable in CI. See 00-bootstrap/backend.tf.
+# a file the workflow writes in CI (bucket + assume_role). State lives in
+# log-archive, ADR 0009.
 terraform {
   backend "s3" {
     key          = "stages/01-guardrails/terraform.tfstate"
