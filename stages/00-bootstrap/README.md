@@ -5,7 +5,7 @@ The first Terraform stage. Turns the hand-made organization from
 accounts everything later is built in.
 
 Runs in the **management account**, with local state at first, then migrated to
-S3 in management, and later to S3 in log-archive (step 7 below). Region
+S3 in management, and since step 5 to S3 in log-archive (step 7 below). Region
 `eu-west-3`.
 
 ## What it creates
@@ -16,8 +16,7 @@ S3 in management, and later to S3 in log-archive (step 7 below). Region
 | 4 OUs | Security, Infrastructure, Workloads, Sandbox |
 | 6 member accounts | log-archive, security, network, staging, prod, sandbox |
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
-| S3 state bucket (management) | Versioned, SSE-S3, public access blocked, TLS-only. The day-one bucket, kept as a way back until step 5 is verified |
-| S3 state bucket (log-archive) | `state-log-archive.tf`: same settings plus history expiry, and CI state roles; ADR 0009 |
+| S3 state bucket (log-archive) | `state-log-archive.tf`: versioned, SSE-S3, public access blocked, TLS-only, history expiry, plus CI state roles; ADR 0009 |
 | GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
 | Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
 
@@ -87,6 +86,12 @@ proposes removing `sso.amazonaws.com`, stop — applying that disables Identity
 Center trusted access and breaks the only sign-in path into the organization.
 
 ### 2. Organization, OUs and state bucket
+
+> **Steps 2 and 3 are the day-one history.** The management state bucket they
+> create was removed in roadmap step 5 (`state-bucket.tf` is gone). A rebuild
+> from scratch keeps local state through step 4, creates the log-archive
+> bucket (step 7, `state-log-archive.tf` with `-target`), and migrates once,
+> straight into it.
 
 ```powershell
 terraform plan "-out=ous-bucket.tfplan" `
@@ -269,10 +274,14 @@ terraform plan    # expect: No changes
 #    "No changes" for both stages.
 ```
 
-`-migrate-state` copies; the old bucket still holds the last state of every
-stage. That's the way back: put the old `backend.hcl` back and run
-`-migrate-state` again. Once CI is verified on the new bucket, a clean-up
-change removes CI's old state permissions and then the old bucket.
+`-migrate-state` copies; the old bucket kept the last state of every stage,
+which was the way back until CI was verified on the new bucket (PR #12, run
+"No changes" for both stages). A clean-up change then removed CI's access to
+the old bucket and the bucket itself, after emptying it: S3 refuses to delete
+a bucket that still holds object versions or delete markers.
+
+Note the migrated copies got a new lineage and serial 1. Harmless, and it
+means an old state file can't be pushed over the new one by accident.
 
 ## Decisions worth knowing
 

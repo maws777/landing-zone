@@ -9,10 +9,9 @@ re-deriving where things stood. Newest session first.
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap steps 1 (CI/CD), 2 (SCPs) and 3 (root access)
-done. Step 4 (logging) done 2026-10-23:** org trail delivering to the
-Object Lock bucket in log-archive, `log-archive-protection` SCP at the root,
-all verified.
+**State of the world: roadmap steps 1 to 5 done.** CI/CD (1), SCPs (2), root
+access (3), logging (4, org trail into the Object Lock bucket in log-archive)
+and, since 2026-10-26, Terraform state in log-archive (5, ADR 0009).
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
@@ -23,8 +22,10 @@ all verified.
   one is deleted.
 - 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
   `AdministratorAccess` on all of them via Identity Center.
-- Terraform state in **S3** with native locking. Bucket name in gitignored
-  `backend.hcl`. No local state left.
+- Terraform state in **S3 in log-archive** with native locking (ADR 0009).
+  Gitignored `backend.hcl` (same in every stage): bucket name +
+  `profile = "log-archive-admin"`. CI chains into `ci/landing-zone-ci-state-*`.
+  No state in management any more, no local state.
 - CLI profiles `<account>-admin` for all six accounts, sharing the `mteplov`
   SSO session. One `aws sso login` covers them all.
 - Provider pinned with `allowed_account_ids`; real IDs only in gitignored files.
@@ -52,16 +53,12 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**In progress: roadmap step 5, state in log-archive (ADR 0009).** Bucket and
-CI state roles applied, all three states migrated locally (backend.hcl =
-new bucket + `profile = "log-archive-admin"`). PR `state/move-to-log-archive`
-switches CI (repo variable `LOG_ARCHIVE_ACCOUNT_ID`, generated backend file
-with `assume_role`). **Nothing else merges to `main` until it does.** After:
-
-- confirm the merge run's apply shows no changes for both stages;
-- clean-up change: drop `ci_state` (old bucket) from `ci-identity.tf`, the
-  `STATE_BUCKET` repo variable, then the old bucket in management (needs
-  `prevent_destroy` removed and its versions emptied: ask first).
+**Next: roadmap step 6, restrict `OrganizationAccountAccessRole`** and add a
+least-privilege permission set (read-only) plus a test user. Needs a design
+pass first. Note: `00-bootstrap` reaches log-archive through that role (its
+`aws.log_archive` provider manages the state bucket, the CI roles there), so
+restricting it needs a replacement path for bootstrap. ADR 0009 also parks the
+state-bucket SCP question until then.
 
 **Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
 (ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
@@ -69,9 +66,9 @@ with `assume_role`). **Nothing else merges to `main` until it does.** After:
 **Checking the logs:** `validate-logs` from `log-archive-admin` with
 `--account-id` (see `stages/02-logging/README.md`).
 
-**After step 4:** step 5 (move state bucket into log-archive), step 6
-(restrict `OrganizationAccountAccessRole`, read-only permission set), step 7
-(Route 53 zone for `lab.michaelteplov.com`), then the app.
+**After step 5:** step 6 (restrict `OrganizationAccountAccessRole`, read-only
+permission set), step 7 (Route 53 zone for `lab.michaelteplov.com`), then the
+app.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
@@ -94,7 +91,7 @@ Don't start until the landing zone is done.
 
 ---
 
-## 2026-10-26 — step 5 started: state bucket in log-archive
+## 2026-10-26 — step 5 done: Terraform state in log-archive
 
 Design and decision in ADR 0009. Phase 1 applied locally (`00-bootstrap`,
 10 added, 2 changed in place): bucket `landing-zone-tfstate-<log-archive id>`
@@ -118,7 +115,19 @@ old state can't be pushed over the new one by accident (lineage mismatch).
 **Until phase 3 merges, nothing else may merge to `main`:** CI still reads
 the old bucket, which is now a stale copy.
 
-Next: phase 3, PR switching CI to the new bucket.
+**Phase 3 done:** PR #12 merged (repo variable `LOG_ARCHIVE_ACCOUNT_ID`, each
+job writes a backend file with `assume_role` into its state role). Merge run:
+`review-plan` and `apply` "No changes" for both stages, digests matched.
+
+**Clean-up done:** old bucket emptied (90 versions + 70 delete markers; S3
+won't delete a non-empty bucket), then `00-bootstrap` applied 7 destroyed
+(old bucket and its settings, `ci_state` policies on both CI roles). Re-plan:
+no changes. Repo variable `STATE_BUCKET` deleted. **Step 5 done.**
+
+**Learned:** `prevent_destroy` only protects while the block is in the code;
+deleting the block removes the protection with it. GitHub's deployment
+approval dialog never shows the plan: it's in the run summary, below the job
+graph.
 
 ---
 

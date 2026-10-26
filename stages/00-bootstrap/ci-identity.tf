@@ -37,8 +37,6 @@ locals {
   # different IDs and could not assume these roles. The name alone would not
   # give that guarantee.
   github_sub_prefix = "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repository}@${var.github_repository_id}"
-
-  state_bucket_arn = aws_s3_bucket.state.arn
 }
 
 # Trust policy builder shared by both roles: same provider, same audience, a
@@ -98,73 +96,6 @@ resource "aws_iam_role" "github" {
 
   # One hour is AWS's default and plenty for a plan or apply of one stage.
   max_session_duration = 3600
-}
-
-# ---------------------------------------------------------------------------
-# State access, shared by both roles.
-#
-# This is access to the *old* state bucket in management. State moves to
-# log-archive in step 5 (state-log-archive.tf, ADR 0009); this block stays
-# until CI runs against the new bucket, then goes.
-#
-# CI may read and lock the state of every stage *except* 00-bootstrap. Its state
-# contains the account root emails, and CI has no business reading it. Later
-# stages look things up with data sources (e.g. the OU list) rather than reading
-# bootstrap's state through terraform_remote_state.
-#
-# The explicit Deny matters: IAM evaluates every statement, and a Deny beats any
-# Allow, so the `stages/*` allow below cannot reach bootstrap's key.
-# ---------------------------------------------------------------------------
-data "aws_iam_policy_document" "ci_state" {
-  for_each = toset(["plan", "apply"])
-
-  # Listing shows key names only, never contents. It is left unconditioned
-  # because the S3 backend lists outside `stages/` too (workspace discovery
-  # under `env:/`), and a prefix condition would break `init` for no real gain.
-  statement {
-    sid       = "ListStateBucket"
-    actions   = ["s3:ListBucket"]
-    resources = [local.state_bucket_arn]
-  }
-
-  statement {
-    sid       = "ReadState"
-    actions   = ["s3:GetObject"]
-    resources = ["${local.state_bucket_arn}/stages/*"]
-  }
-
-  # A "read-only" plan still takes a lock: with use_lockfile, Terraform writes a
-  # <key>.tflock object and deletes it afterwards. So both roles can write lock
-  # files; only apply can write state itself.
-  statement {
-    sid       = "LockState"
-    actions   = ["s3:PutObject", "s3:DeleteObject"]
-    resources = ["${local.state_bucket_arn}/stages/*.tflock"]
-  }
-
-  dynamic "statement" {
-    for_each = each.key == "apply" ? [1] : []
-    content {
-      sid       = "WriteState"
-      actions   = ["s3:PutObject"]
-      resources = ["${local.state_bucket_arn}/stages/*/terraform.tfstate"]
-    }
-  }
-
-  statement {
-    sid       = "NeverBootstrapState"
-    effect    = "Deny"
-    actions   = ["s3:*"]
-    resources = ["${local.state_bucket_arn}/stages/00-bootstrap/*"]
-  }
-}
-
-resource "aws_iam_role_policy" "ci_state" {
-  for_each = data.aws_iam_policy_document.ci_state
-
-  name   = "terraform-state"
-  role   = aws_iam_role.github[each.key].id
-  policy = each.value.json
 }
 
 # ---------------------------------------------------------------------------

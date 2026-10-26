@@ -38,11 +38,6 @@ output "log_bucket_name" {
   value       = local.log_bucket_name
 }
 
-output "state_bucket_name" {
-  description = "Old Terraform state bucket in management. Kept as a way back until the step 5 migration is verified."
-  value       = aws_s3_bucket.state.id
-}
-
 output "log_archive_state_bucket_name" {
   description = "Terraform state bucket in log-archive (ADR 0009). Goes in every stage's backend.hcl."
   value       = aws_s3_bucket.la_state.id
