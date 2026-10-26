@@ -4,8 +4,9 @@
 # called from the management account, so this stage has to run there regardless.
 # The tidier arrangement would put state in log-archive, separating state from
 # the account it manages - but log-archive does not exist until this stage
-# creates it. That is the bootstrap chicken-and-egg. Moving it is roadmap
-# step 5; see the stage README.
+# creates it. That is the bootstrap chicken-and-egg. Roadmap step 5 moved
+# state to log-archive (state-log-archive.tf, ADR 0009); this bucket stays as
+# the way back until the migration is verified, then gets removed.
 
 data "aws_caller_identity" "current" {}
 

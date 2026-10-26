@@ -5,7 +5,7 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-10-23)
+## Resume here (updated 2026-10-26)
 
 Read this block first; the entries below have the detail if needed.
 
@@ -43,26 +43,25 @@ terraform plan    # expect: No changes
 
 - **CI/CD live (roadmap step 1):** GitHub OIDC roles in management, and a
   workflow that plans on PRs and applies on `main` behind the `management`
-  environment. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
+  environment. Since PR #11, a `review-plan` job shows main's plan *before*
+  the approval prompt, and `apply` refuses to run if its own plan's digest
+  differs. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
   stages need their permissions added in `ci-identity.tf` first (local apply).
 
 **Roadmap step 3 done (ADR 0007):** centralized root access on, all six
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Next: roadmap step 5, move Terraform state into log-archive.** Needs a
-design pass first (nothing decided):
+**In progress: roadmap step 5, state in log-archive (ADR 0009).** Bucket and
+CI state roles applied, all three states migrated locally (backend.hcl =
+new bucket + `profile = "log-archive-admin"`). PR `state/move-to-log-archive`
+switches CI (repo variable `LOG_ARCHIVE_ACCOUNT_ID`, generated backend file
+with `assume_role`). **Nothing else merges to `main` until it does.** After:
 
-- The state bucket is in management (bootstrap chicken-and-egg). Target: a new
-  bucket in log-archive, cross-account bucket policy, and a role the stages
-  assume for the backend; then `terraform init -migrate-state` per stage.
-- The new `log-archive-protection` SCP names only the CloudTrail bucket, so it
-  doesn't affect a state bucket, but a similar protection for state is worth
-  deciding.
-- CI's state permissions (`ci-identity.tf`, `ci_state`) and the
-  `STATE_BUCKET` repo variable move with it; bootstrap's state key stays
-  denied to CI.
-- Write an ADR.
+- confirm the merge run's apply shows no changes for both stages;
+- clean-up change: drop `ci_state` (old bucket) from `ci-identity.tf`, the
+  `STATE_BUCKET` repo variable, then the old bucket in management (needs
+  `prevent_destroy` removed and its versions emptied: ask first).
 
 **Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
 (ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
@@ -92,6 +91,55 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-10-26 — step 5 started: state bucket in log-archive
+
+Design and decision in ADR 0009. Phase 1 applied locally (`00-bootstrap`,
+10 added, 2 changed in place): bucket `landing-zone-tfstate-<log-archive id>`
+(versioned, SSE-S3, TLS only, history expiry), CI roles
+`ci/landing-zone-ci-state-{plan,apply}` in log-archive, and `AssumeStateRole`
+on the management CI roles. Re-plan: no changes. Checked from
+`log-archive-admin`: versioning `Enabled`, lifecycle rule present.
+
+**Learned:** a policy whose JSON references a resource being created shows
+in the plan as fully removed `-> (known after apply)`. The matching
+`data "aws_iam_policy_document"` block shows the real result.
+
+**Phase 2 done:** the three `backend.hcl` (gitignored) now hold the new bucket
+plus `profile = "log-archive-admin"`. Each stage migrated with
+`terraform init -migrate-state -force-copy "-backend-config=backend.hcl"`, then
+planned: "No changes" for all three. Compared old and new objects: resources
+identical (40 / 9 / 11), but the copies got a **new lineage and serial 1**
+(old serials 10 / 6 / 4). Harmless for running Terraform; it also means the
+old state can't be pushed over the new one by accident (lineage mismatch).
+
+**Until phase 3 merges, nothing else may merge to `main`:** CI still reads
+the old bucket, which is now a stale copy.
+
+Next: phase 3, PR switching CI to the new bucket.
+
+---
+
+## 2026-10-24 — apply gate shows the plan first (PR #11)
+
+**Problem:** GitHub pauses a job with `environment:` before its first step, so
+the plan on `main` ran only after approval. The reviewer approved blind.
+
+**Change:** new `review-plan` job on push to `main` (read-only plan role,
+plan in the job summary, uploads only a SHA-256 digest of the planned
+changes). `apply` re-plans with its own role and stops if the digest differs,
+then applies its own saved plan. The plan file itself never crosses jobs: it
+would carry the plan job's variables (read-only log-archive role) and be a
+downloadable artifact on a public repo.
+
+`00-bootstrap`, applied locally first: the plan role's trust policy also
+accepts `...:ref:refs/heads/main` (StringEquals, no wildcards). Re-plan: no
+changes.
+
+**Verified on the merge run:** `review-plan` (both stages) then `apply` (both
+stages, digest matched) all green.
 
 ---
 

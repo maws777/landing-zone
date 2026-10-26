@@ -37,6 +37,9 @@ env:
   TF_IN_AUTOMATION: "1"
   TF_INPUT: "0"
   TF_VAR_management_account_id: ${{ vars.MANAGEMENT_ACCOUNT_ID }}
+  # Terraform state lives in log-archive (ADR 0009). The bucket name and the
+  # state roles are built from this ID; see the "Backend config" steps.
+  LOG_ARCHIVE_ACCOUNT_ID: ${{ vars.LOG_ARCHIVE_ACCOUNT_ID }}
 
 jobs:
   plan:
@@ -57,6 +60,9 @@ jobs:
       # stage doesn't declare. The plan role can only chain into its own
       # counterpart in log-archive (00-bootstrap/ci-identity.tf).
       TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-plan
+      # The role the backend assumes in log-archive to read and lock state.
+      # Same rule: plan can only reach the read-only one.
+      TF_STATE_ROLE: ci/landing-zone-ci-state-plan
     defaults:
       run:
         working-directory: stages/${{ matrix.stage }}
@@ -89,7 +95,20 @@ jobs:
           terraform_wrapper: false
 
       - run: terraform fmt -check -recursive
-      - run: terraform init "-backend-config=bucket=${{ vars.STATE_BUCKET }}"
+      # The backend reads state with its own credentials: the job's role
+      # chains into TF_STATE_ROLE in log-archive (ADR 0009). A nested
+      # assume_role can't be passed as -backend-config=key=value, so it goes
+      # in a file, written on the runner and never committed.
+      - name: Backend config
+        run: |
+          cat > ci.s3.tfbackend <<EOF
+          bucket = "landing-zone-tfstate-${LOG_ARCHIVE_ACCOUNT_ID}"
+          assume_role = {
+            role_arn     = "arn:aws:iam::${LOG_ARCHIVE_ACCOUNT_ID}:role/${TF_STATE_ROLE}"
+            session_name = "github-${GITHUB_RUN_ID}"
+          }
+          EOF
+      - run: terraform init -backend-config=ci.s3.tfbackend
       - run: terraform validate -no-color
       - run: terraform plan -no-color -lock-timeout=5m -out=tfplan
 
@@ -129,6 +148,7 @@ jobs:
       id-token: write
     env:
       TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-plan
+      TF_STATE_ROLE: ci/landing-zone-ci-state-plan
     defaults:
       run:
         working-directory: stages/${{ matrix.stage }}
@@ -153,7 +173,20 @@ jobs:
           terraform_version: 1.14.3
           terraform_wrapper: false
 
-      - run: terraform init "-backend-config=bucket=${{ vars.STATE_BUCKET }}"
+      # The backend reads state with its own credentials: the job's role
+      # chains into TF_STATE_ROLE in log-archive (ADR 0009). A nested
+      # assume_role can't be passed as -backend-config=key=value, so it goes
+      # in a file, written on the runner and never committed.
+      - name: Backend config
+        run: |
+          cat > ci.s3.tfbackend <<EOF
+          bucket = "landing-zone-tfstate-${LOG_ARCHIVE_ACCOUNT_ID}"
+          assume_role = {
+            role_arn     = "arn:aws:iam::${LOG_ARCHIVE_ACCOUNT_ID}:role/${TF_STATE_ROLE}"
+            session_name = "github-${GITHUB_RUN_ID}"
+          }
+          EOF
+      - run: terraform init -backend-config=ci.s3.tfbackend
       - run: terraform plan -no-color -lock-timeout=5m -out=tfplan
 
       - name: Plan summary
@@ -212,6 +245,7 @@ jobs:
       id-token: write
     env:
       TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-apply
+      TF_STATE_ROLE: ci/landing-zone-ci-state-apply
     defaults:
       run:
         working-directory: stages/${{ matrix.stage }}
@@ -241,7 +275,20 @@ jobs:
           name: reviewed-plan-${{ matrix.stage }}
           path: stages/${{ matrix.stage }}/reviewed
 
-      - run: terraform init "-backend-config=bucket=${{ vars.STATE_BUCKET }}"
+      # The backend reads state with its own credentials: the job's role
+      # chains into TF_STATE_ROLE in log-archive (ADR 0009). A nested
+      # assume_role can't be passed as -backend-config=key=value, so it goes
+      # in a file, written on the runner and never committed.
+      - name: Backend config
+        run: |
+          cat > ci.s3.tfbackend <<EOF
+          bucket = "landing-zone-tfstate-${LOG_ARCHIVE_ACCOUNT_ID}"
+          assume_role = {
+            role_arn     = "arn:aws:iam::${LOG_ARCHIVE_ACCOUNT_ID}:role/${TF_STATE_ROLE}"
+            session_name = "github-${GITHUB_RUN_ID}"
+          }
+          EOF
+      - run: terraform init -backend-config=ci.s3.tfbackend
       # Plan and apply the same saved file, so exactly what's printed is what runs.
       - run: terraform plan -no-color -lock-timeout=5m -out=tfplan
 

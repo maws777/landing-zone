@@ -39,6 +39,16 @@ output "log_bucket_name" {
 }
 
 output "state_bucket_name" {
-  description = "Terraform state bucket. Referenced by the s3 backend block."
+  description = "Old Terraform state bucket in management. Kept as a way back until the step 5 migration is verified."
   value       = aws_s3_bucket.state.id
+}
+
+output "log_archive_state_bucket_name" {
+  description = "Terraform state bucket in log-archive (ADR 0009). Goes in every stage's backend.hcl."
+  value       = aws_s3_bucket.la_state.id
+}
+
+output "log_archive_state_ci_role_arns" {
+  description = "Roles in log-archive that CI's backend assumes to read and lock state."
+  value       = { for name, role in aws_iam_role.la_state_ci : name => role.arn }
 }

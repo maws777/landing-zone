@@ -103,6 +103,10 @@ resource "aws_iam_role" "github" {
 # ---------------------------------------------------------------------------
 # State access, shared by both roles.
 #
+# This is access to the *old* state bucket in management. State moves to
+# log-archive in step 5 (state-log-archive.tf, ADR 0009); this block stays
+# until CI runs against the new bucket, then goes.
+#
 # CI may read and lock the state of every stage *except* 00-bootstrap. Its state
 # contains the account root emails, and CI has no business reading it. Later
 # stages look things up with data sources (e.g. the OU list) rather than reading
@@ -207,6 +211,16 @@ data "aws_iam_policy_document" "ci_permissions" {
     sid       = "AssumeLogArchiveRole"
     actions   = ["sts:AssumeRole"]
     resources = [aws_iam_role.log_archive_ci[each.key].arn]
+  }
+
+  # --- State in log-archive (ADR 0009) --------------------------------------
+
+  # The backend's hop to the state bucket (state-log-archive.tf), again only
+  # into the matching role.
+  statement {
+    sid       = "AssumeStateRole"
+    actions   = ["sts:AssumeRole"]
+    resources = [aws_iam_role.la_state_ci[each.key].arn]
   }
 
   # Reading trails. DescribeTrails has no resource-level permissions, so "*".
