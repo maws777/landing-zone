@@ -18,21 +18,39 @@ variable "management_account_id" {
   }
 }
 
+# How the log-archive provider gets in (versions.tf). Exactly one is set.
 variable "log_archive_role_name" {
   description = <<-EOT
-    Role (with its path) assumed in log-archive. CI sets it per job:
-    ci/landing-zone-ci-logging-plan or ci/landing-zone-ci-logging-apply.
-    Locally: OrganizationAccountAccessRole, in terraform.tfvars.
+    Role (with its path) assumed in log-archive, from the job's credentials.
+    CI sets it per job: ci/landing-zone-ci-logging-plan or
+    ci/landing-zone-ci-logging-apply. Unset locally.
   EOT
   type        = string
+  default     = null
 
   validation {
-    condition = contains([
+    # A conditional, not ||: Terraform evaluates both sides of ||, and
+    # contains() on null would fail.
+    condition = var.log_archive_role_name == null ? true : contains([
       "ci/landing-zone-ci-logging-plan",
       "ci/landing-zone-ci-logging-apply",
-      "OrganizationAccountAccessRole",
     ], var.log_archive_role_name)
-    error_message = "log_archive_role_name must be one of the two CI logging roles or OrganizationAccountAccessRole."
+    error_message = "log_archive_role_name must be one of the two CI logging roles."
+  }
+}
+
+variable "log_archive_profile" {
+  description = <<-EOT
+    Locally: the Identity Center profile for log-archive (log-archive-admin),
+    in terraform.tfvars. Replaces OrganizationAccountAccessRole, which step 6
+    locks (ADR 0010). Unset in CI.
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    condition     = (var.log_archive_profile == null) != (var.log_archive_role_name == null)
+    error_message = "Set exactly one of log_archive_profile (local runs) or log_archive_role_name (CI)."
   }
 }
 

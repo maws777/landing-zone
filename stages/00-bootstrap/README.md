@@ -18,6 +18,7 @@ S3 in management, and since step 5 to S3 in log-archive (step 7 below). Region
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
 | S3 state bucket (log-archive) | `state-log-archive.tf`: versioned, SSE-S3, public access blocked, TLS-only, history expiry, plus CI state roles; ADR 0009 |
 | GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
+| Read-only access | `read-only-access.tf`: `ViewOnlyAccess` permission set, `readers` group (you + `test-reader`) on all 7 accounts, ADR 0010 |
 | Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
 
 Account layout:
@@ -283,6 +284,29 @@ a bucket that still holds object versions or delete markers.
 Note the migrated copies got a new lineage and serial 1. Harmless, and it
 means an old state file can't be pushed over the new one by accident.
 
+### 8. Read-only access (roadmap step 6, ADR 0010)
+
+`read-only-access.tf` adds a `ViewOnlyAccess` permission set and a `readers`
+group on every account, with you and a `test-reader` user in it. Locally this
+stage now needs two profiles: `management-admin` (AWS_PROFILE) and
+`log-archive-admin` (the log-archive provider and the state backend).
+
+Read-only CLI profiles, one per account, same pattern as step 5:
+
+```ini
+[profile prod-readonly]
+sso_session = <sso-session-name>
+sso_account_id = <prod account id>
+sso_role_name = ViewOnlyAccess
+region = eu-west-3
+```
+
+`test-reader` is created without a password, and Identity Center doesn't email
+users created through the API. For its first sign-in: IAM Identity Center
+console → Users → `test-reader` → Reset password → send an email. Then sign
+in at the portal in a private window and check it sees resources but can't
+change them or read S3 objects.
+
 ## Decisions worth knowing
 
 **Where state lives.** The Organizations API can only be called from the
@@ -303,8 +327,10 @@ also creates this role inside it: `AdministratorAccess`, trusting the management
 account. It's the bootstrap access path — without it a new account has no way in
 but its root user. It's also a wide door: anyone who can assume roles from
 management gets full admin everywhere, and its use is only visible in CloudTrail.
-Roadmap step 6 restricts it, once Identity Center gives every account a real
-access path and locking it down can't strand us.
+Step 6 locks it with an SCP that denies it every action (ADR 0010); detaching
+that SCP from management is the break-glass path. Nothing here uses the role
+any more: the log-archive provider signs in with the `log-archive-admin`
+profile.
 
 **`ignore_changes = [role_name]` on accounts.** `role_name` can't be read back
 through the Organizations API, so Terraform sees it as absent on every refresh

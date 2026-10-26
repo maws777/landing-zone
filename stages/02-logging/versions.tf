@@ -27,25 +27,31 @@ provider "aws" {
 
 # log-archive account: the bucket the trail delivers to.
 #
-# The same credentials as above, plus one sts:AssumeRole into log-archive
-# before every call. Which role depends on who runs this:
-#   CI plan   -> ci/landing-zone-ci-logging-plan   (read the bucket config)
-#   CI apply  -> ci/landing-zone-ci-logging-apply  (manage the bucket config)
-#   locally   -> OrganizationAccountAccessRole     (admin; the CI roles trust
-#                                                   only the CI roles)
-# All three are created or documented in 00-bootstrap (log-archive-access.tf).
+# Two ways in, set by variables (exactly one; see variables.tf):
+#   CI plan   -> job credentials + assume ci/landing-zone-ci-logging-plan
+#   CI apply  -> job credentials + assume ci/landing-zone-ci-logging-apply
+#   locally   -> profile log-archive-admin (Identity Center, MFA)
+# The CI roles are created in 00-bootstrap (log-archive-access.tf) and trust
+# only the CI roles. Local runs used OrganizationAccountAccessRole until step
+# 6 locked it (ADR 0010).
 #
 # The account ID is looked up from the organization (organization.tf) instead of
 # being one more variable to keep in sync. A provider can depend on a data
 # source from another provider: Terraform reads the lookup first, then
 # configures this provider with the result.
 provider "aws" {
-  alias  = "log_archive"
-  region = var.region
+  alias   = "log_archive"
+  region  = var.region
+  profile = var.log_archive_profile
 
-  assume_role {
-    role_arn     = "arn:aws:iam::${local.log_archive_account_id}:role/${var.log_archive_role_name}"
-    session_name = "terraform-02-logging"
+  # A dynamic block: present in CI, absent locally, where the profile already
+  # lands in log-archive.
+  dynamic "assume_role" {
+    for_each = var.log_archive_role_name == null ? [] : [var.log_archive_role_name]
+    content {
+      role_arn     = "arn:aws:iam::${local.log_archive_account_id}:role/${assume_role.value}"
+      session_name = "terraform-02-logging"
+    }
   }
 
   allowed_account_ids = [local.log_archive_account_id]

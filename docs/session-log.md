@@ -53,12 +53,13 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**Next: roadmap step 6, restrict `OrganizationAccountAccessRole`** and add a
-least-privilege permission set (read-only) plus a test user. Needs a design
-pass first. Note: `00-bootstrap` reaches log-archive through that role (its
-`aws.log_archive` provider manages the state bucket, the CI roles there), so
-restricting it needs a replacement path for bootstrap. ADR 0009 also parks the
-state-bucket SCP question until then.
+**In progress: roadmap step 6 (ADR 0010).** Part A applied locally (branch
+`access/lock-oaar`): nothing in the repo uses `OrganizationAccountAccessRole`
+any more (bootstrap's log-archive provider and local `02-logging` use the
+`log-archive-admin` profile), `ViewOnlyAccess` permission set + `readers`
+group (michael, `test-reader`) on all 7 accounts, `<account>-readonly` CLI
+profiles. Part B next: break-glass SCP denying the role every action, Sandbox
+OU first, then folded into `baseline-protections`.
 
 **Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
 (ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
@@ -88,6 +89,29 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-10-26 (later) — step 6 part A: Identity Center instead of the passe-partout
+
+Design and options in ADR 0010 (SCP "break glass" over deleting the role or
+narrowing its trust). `00-bootstrap` applied: 13 added (permission set
+`ViewOnlyAccess` + managed policy, group `readers`, user `test-reader`, two
+memberships, 7 assignments). Re-plan: no changes. The plan before it already
+re-read every log-archive resource through the `log-archive-admin` profile,
+which proved the new path before the old one closes. `02-logging` local plan
+with `log_archive_profile`: no changes; setting both variables is refused.
+
+`~/.aws/config`: 7 `<account>-readonly` profiles added (backup
+`config.bak-2026-10-26`).
+
+**Tested from `log-archive-readonly`:** identity is
+`AWSReservedSSO_ViewOnlyAccess_*/michael`; list buckets works; reading a state
+object, AccessDenied; `iam:CreatePolicy`, AccessDenied. **But
+`s3:GetBucketVersioning` is AccessDenied too:** `ViewOnlyAccess` only lists
+S3, it doesn't show bucket configuration. Too thin for auditing.
+
+`test-reader` has no password yet (API-created users get no invitation).
 
 ---
 

@@ -21,3 +21,7 @@ account_emails = {
   "prod"        = "you+aws-prod@gmail.com"
   "sandbox"     = "you+aws-sandbox@gmail.com"
 }
+
+# The test user of the readers group (read-only-access.tf). Another alias of
+# the same mailbox; Identity Center sends its invitation here.
+test_reader_email = "you+aws-test-reader@gmail.com"

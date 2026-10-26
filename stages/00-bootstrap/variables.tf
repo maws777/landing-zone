@@ -74,3 +74,35 @@ variable "account_emails" {
     error_message = "Each account needs a unique root email address; found a duplicate."
   }
 }
+
+variable "log_archive_profile" {
+  description = <<-EOT
+    AWS CLI profile the log-archive provider signs in with (versions.tf): an
+    Identity Center profile with admin rights in log-archive. Replaces
+    OrganizationAccountAccessRole, which step 6 locks (ADR 0010).
+  EOT
+  type        = string
+  default     = "log-archive-admin"
+}
+
+# Read-only access (read-only-access.tf, ADR 0010).
+variable "operator_user_name" {
+  description = "Identity Center user name of the person running this stage. Joins the readers group."
+  type        = string
+  default     = "michael"
+}
+
+variable "test_reader_email" {
+  description = <<-EOT
+    Email of the test-reader Identity Center user. Identity Center sends the
+    sign-in invitation and password resets there. A Gmail "+" alias works.
+    Kept in the gitignored terraform.tfvars.
+  EOT
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[^@ ]+@[^@ ]+[.][^@ ]+$", var.test_reader_email))
+    error_message = "test_reader_email must be an email address."
+  }
+}
