@@ -1,6 +1,6 @@
 # Terraform state, moved into log-archive (roadmap step 5, ADR 0009).
 #
-# The first state bucket (state-bucket.tf) had to live in management: this
+# The first state bucket had to live in management: this
 # stage creates log-archive, so log-archive couldn't hold its state on day one.
 # Now that it exists, state moves here. The effect: the account that can change
 # the organization no longer also holds the full map of it. Reading state now
@@ -20,12 +20,14 @@
 # an identity policy and a bucket policy saying yes; with role chaining only
 # the identity policy is needed, so there is one fewer place to get wrong.
 #
-# The old bucket stays until the migration is verified, as a way back
-# (terraform init -migrate-state copies state, it doesn't move it).
+# The management bucket was kept as a way back until CI ran on this one
+# (terraform init -migrate-state copies state, it doesn't move it), then
+# removed. Its settings live on below: versioning, SSE-S3 rather than a $1/month
+# KMS key, public access blocked, TLS only.
 
 locals {
-  # Same naming rule as the first bucket: the owning account's ID keeps the
-  # global name unique without a random suffix to remember.
+  # S3 bucket names are global across all AWS customers: the owning account's
+  # ID keeps this one unique without a random suffix to remember.
   la_state_bucket_name = "landing-zone-tfstate-${local.log_archive_account_id}"
   la_state_bucket_arn  = "arn:aws:s3:::${local.la_state_bucket_name}"
 }
@@ -51,7 +53,11 @@ resource "aws_s3_bucket_versioning" "la_state" {
   }
 }
 
-# SSE-S3, not KMS: same reasoning and trade-off as state-bucket.tf.
+# SSE-S3 (AES256), deliberately not KMS. State holds resource metadata and
+# sometimes secrets, so encryption at rest is worth having, but a
+# customer-managed KMS key costs $1/month, a noticeable slice of a EUR 10-15
+# budget. The trade-off: no separate key policy, so access is controlled by IAM
+# and the bucket policy alone. With one operator and no public access, enough.
 resource "aws_s3_bucket_server_side_encryption_configuration" "la_state" {
   provider = aws.log_archive
 
@@ -166,12 +172,19 @@ resource "aws_iam_role" "la_state_ci" {
   max_session_duration = 3600
 }
 
-# The same rules as ci_state in ci-identity.tf, pointed at the new bucket:
-# read and lock every stage's state, write it only from apply, and never touch
-# 00-bootstrap's (it holds the root emails).
+# CI may read and lock the state of every stage *except* 00-bootstrap. Its state
+# contains the account root emails, and CI has no business reading it. Later
+# stages look things up with data sources (e.g. the OU list) rather than reading
+# bootstrap's state through terraform_remote_state.
+#
+# The explicit Deny matters: IAM evaluates every statement, and a Deny beats any
+# Allow, so the `stages/*` allow below cannot reach bootstrap's key.
 data "aws_iam_policy_document" "la_state_ci" {
   for_each = toset(["plan", "apply"])
 
+  # Listing shows key names only, never contents. It is left unconditioned
+  # because the S3 backend lists outside `stages/` too (workspace discovery
+  # under `env:/`), and a prefix condition would break `init` for no real gain.
   statement {
     sid       = "ListStateBucket"
     actions   = ["s3:ListBucket"]
@@ -184,6 +197,9 @@ data "aws_iam_policy_document" "la_state_ci" {
     resources = ["${local.la_state_bucket_arn}/stages/*"]
   }
 
+  # A "read-only" plan still takes a lock: with use_lockfile, Terraform writes a
+  # <key>.tflock object and deletes it afterwards. So both roles can write lock
+  # files; only apply can write state itself.
   statement {
     sid       = "LockState"
     actions   = ["s3:PutObject", "s3:DeleteObject"]

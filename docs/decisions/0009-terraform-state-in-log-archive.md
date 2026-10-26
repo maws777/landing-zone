@@ -96,5 +96,11 @@ Costs and risks:
   were ever recreated, its state would have to be restored from the old
   bucket's versions or rebuilt by import. Accepted: closing `log-archive` is
   denied by SCP and its root has no credentials.
-- For a few weeks there are two state buckets and two sets of CI state
+- Until CI is verified there are two state buckets and two sets of CI state
   permissions. The old ones go in a clean-up change after verification.
+- The old bucket's history (every state version since day one) is deleted
+  with it. A local backup was not kept: bootstrap's state holds the root
+  emails, and a copy on disk is what this move is meant to avoid.
+
+Update 2026-10-26: migration verified (PR #12, CI "No changes" on both
+stages); old bucket and `ci_state` removed the same day.
