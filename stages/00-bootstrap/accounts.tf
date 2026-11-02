@@ -77,7 +77,8 @@ resource "aws_organizations_account" "member" {
 # account gets full admin in every member account, and its use is only visible
 # in CloudTrail rather than being gated by anything.
 #
-# Roadmap step 6 restricts it, once Identity Center provides a real access path
-# to each account (identity-center.tf below) and locking it down cannot strand
-# us. Until then it stays as the escape hatch.
+# Roadmap step 6 locks it (ADR 0010): an SCP denies every action to this role
+# in member accounts, and nothing in this repo uses it any more (the
+# log-archive provider signs in through Identity Center). The SCP can be
+# detached from management to break the glass in an emergency.
 # ---------------------------------------------------------------------------

@@ -35,28 +35,26 @@ provider "aws" {
 }
 
 # A second provider, for resources that live inside the log-archive account
-# (log-archive-access.tf). Same credentials as above, but before every call it
-# assumes OrganizationAccountAccessRole in log-archive: the admin role that
-# Organizations created there along with the account (accounts.tf).
+# (log-archive-access.tf, state-log-archive.tf).
 #
-# This is the one place the pipeline-free bootstrap stage uses that admin role,
-# and only to create the narrow roles CI will use instead (ADR 0008).
+# It signs in with its own Identity Center profile, log-archive-admin, instead
+# of the default provider's credentials. Until step 6 it assumed
+# OrganizationAccountAccessRole in log-archive, the admin role Organizations
+# creates in every new account and that trusts the whole management account.
+# Step 6 locks that role with an SCP (ADR 0010), so this stage enters
+# log-archive the way a person does: through Identity Center, with MFA.
 #
 # The account ID comes from the account resource in this same stage. That works
 # because the account already exists, so its ID is known at plan time. On an
 # empty state the accounts would have to be applied first (-target), which is
 # how this stage was built anyway.
 provider "aws" {
-  alias  = "log_archive"
-  region = var.region
+  alias   = "log_archive"
+  region  = var.region
+  profile = var.log_archive_profile
 
-  assume_role {
-    role_arn     = "arn:aws:iam::${aws_organizations_account.member["log-archive"].id}:role/OrganizationAccountAccessRole"
-    session_name = "terraform-00-bootstrap"
-  }
-
-  # Same safety check as the default provider: stop if the assumed role turns
-  # out to be in any other account.
+  # Same safety check as the default provider: stop if the profile turns out
+  # to point at any other account.
   allowed_account_ids = [aws_organizations_account.member["log-archive"].id]
 
   default_tags {

@@ -26,18 +26,19 @@ The bucket lives in `log-archive`, the trail in management, and the trail
 can't exist before the bucket policy allows it to write. Keeping both in one
 stage makes that order a `depends_on` instead of a note in a README.
 
-The second provider (`aws.log_archive`) assumes a role in log-archive:
+The second provider (`aws.log_archive`) gets into log-archive one of two ways:
 
-| Who runs it | Role in log-archive | Set by |
+| Who runs it | Identity in log-archive | Set by |
 |---|---|---|
-| CI, pull request | `ci/landing-zone-ci-logging-plan` | workflow env |
-| CI, apply on `main` | `ci/landing-zone-ci-logging-apply` | workflow env |
-| Locally | `OrganizationAccountAccessRole` | `terraform.tfvars` |
+| CI, pull request | assumes `ci/landing-zone-ci-logging-plan` | workflow env (`log_archive_role_name`) |
+| CI, apply on `main` | assumes `ci/landing-zone-ci-logging-apply` | workflow env (`log_archive_role_name`) |
+| Locally | Identity Center profile `log-archive-admin` | `terraform.tfvars` (`log_archive_profile`) |
 
 The CI roles are created by `00-bootstrap` (`log-archive-access.tf`) and can
 only touch the bucket's configuration, never the log files. They trust only
 the matching CI role in management, so a local admin session can't assume
-them; that's why local runs use `OrganizationAccountAccessRole`.
+them. Local runs used `OrganizationAccountAccessRole` until step 6 locked it
+with an SCP (ADR 0010); they now sign in to log-archive directly.
 
 ## Running it
 
@@ -53,7 +54,7 @@ terraform plan
 ```
 
 `terraform.tfvars` (gitignored) holds `management_account_id` and
-`log_archive_role_name = "OrganizationAccountAccessRole"`.
+`log_archive_profile = "log-archive-admin"`.
 
 ## Checking it works
 

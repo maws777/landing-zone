@@ -4,6 +4,7 @@
 terraform.tfvars
 backend.hcl
 *.tfplan
+tfplan
 crash.log
 crash.*.log
 CLAUDE.md
