@@ -1,6 +1,6 @@
 output "scp_ids" {
   description = "SCP IDs by short name."
-  value       = local.policies
+  value       = { for name, policy in local.policies : name => policy.id }
 }
 
 output "scp_attachments" {
