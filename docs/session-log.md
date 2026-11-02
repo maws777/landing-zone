@@ -56,7 +56,8 @@ Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 **In progress: roadmap step 6 (ADR 0010).** Part A applied locally (branch
 `access/lock-oaar`): nothing in the repo uses `OrganizationAccountAccessRole`
 any more (bootstrap's log-archive provider and local `02-logging` use the
-`log-archive-admin` profile), `ViewOnlyAccess` permission set + `readers`
+`log-archive-admin` profile), `ViewOnlyAccess` permission set (with
+`ViewOnlyAccess` + `SecurityAudit` policies since 2026-11-02) + `readers`
 group (michael, `test-reader`) on all 7 accounts, `<account>-readonly` CLI
 profiles. Part B next: break-glass SCP denying the role every action, Sandbox
 OU first, then folded into `baseline-protections`.
@@ -89,6 +90,23 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-11-02 — read-only set gets SecurityAudit
+
+`SecurityAudit` attached to the `ViewOnlyAccess` permission set (ADR 0010
+amended). `00-bootstrap` applied: 1 added, 1 changed (description). Re-plan:
+no changes. **Tested from `log-archive-readonly`** (new sign-in needed, old
+sessions keep the old policy): `get-bucket-versioning` → `Enabled`,
+`get-bucket-policy` readable, `list-objects-v2` shows the three state keys,
+`get-object` on `stages/00-bootstrap/terraform.tfstate` → AccessDenied,
+`put-bucket-tagging` → AccessDenied.
+
+Gotcha: a wrong key first returned `NoSuchKey`, not 403. That isn't a leak of
+the object: S3 only says "doesn't exist" to callers with `s3:ListBucket`
+(which `SecurityAudit` grants), otherwise it hides existence behind 403.
+Always test denies against an object that really exists.
 
 ---
 

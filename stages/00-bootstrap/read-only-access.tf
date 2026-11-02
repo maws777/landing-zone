@@ -21,7 +21,7 @@
 resource "aws_ssoadmin_permission_set" "view_only" {
   instance_arn = local.sso_instance_arn
   name         = "ViewOnlyAccess"
-  description  = "See resources and their configuration, not their data. Managed by 00-bootstrap."
+  description  = "ViewOnlyAccess + SecurityAudit: see resources and their configuration, not their data. Managed by 00-bootstrap."
 
   # How long a portal or CLI session lasts before signing in again. Same as
   # the Day 0 AdministratorAccess set.
@@ -32,6 +32,20 @@ resource "aws_ssoadmin_managed_policy_attachment" "view_only" {
   instance_arn       = local.sso_instance_arn
   permission_set_arn = aws_ssoadmin_permission_set.view_only.arn
   managed_policy_arn = "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
+}
+
+# ViewOnlyAccess alone turned out too thin (tested 2026-10-26): for S3 it only
+# lists buckets, so even a bucket's versioning setting was AccessDenied.
+# SecurityAudit is AWS's policy for auditors and fills that gap: security
+# configuration of every service (bucket policies, versioning, encryption, IAM,
+# CloudTrail, SCPs). Checked against its current version: no s3:GetObject, no
+# secret or parameter values, no DynamoDB items, no log events, no kms:Decrypt,
+# and no write action at all. It does add cloudtrail:LookupEvents, the last 90
+# days of management events: who did what, which is the point of an audit.
+resource "aws_ssoadmin_managed_policy_attachment" "security_audit" {
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.view_only.arn
+  managed_policy_arn = "arn:aws:iam::aws:policy/SecurityAudit"
 }
 
 resource "aws_identitystore_group" "readers" {
@@ -107,5 +121,8 @@ resource "aws_ssoadmin_account_assignment" "readers" {
   # Assigning provisions the permission set into the account as a role. If
   # that happened before the policy was attached, the first role would carry
   # no permissions until the next provisioning.
-  depends_on = [aws_ssoadmin_managed_policy_attachment.view_only]
+  depends_on = [
+    aws_ssoadmin_managed_policy_attachment.view_only,
+    aws_ssoadmin_managed_policy_attachment.security_audit,
+  ]
 }

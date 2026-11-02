@@ -59,7 +59,21 @@ state backend works since ADR 0009:
 policy), assigned to a new `readers` group on all seven accounts. Not
 `ReadOnlyAccess`: that one reads data (`s3:GetObject` on state files and
 CloudTrail logs, secret values). `ViewOnlyAccess` shows what exists and how it
-is configured, which is what auditing needs. The operator joins `readers` and
+is configured, which is what auditing needs.
+
+Amended 2026-11-02: `ViewOnlyAccess` alone proved too thin. For S3 it only
+lists buckets, so even `GetBucketVersioning` was denied. The same permission
+set now also carries AWS's `SecurityAudit` policy: security configuration of
+every service (bucket policies, encryption, IAM, CloudTrail, SCPs), still no
+object, secret, item or log data and no writes. It adds two things worth
+knowing: `cloudtrail:LookupEvents` (90 days of management events, the point
+of an audit) and `s3:ListBucket`, so object *names* are visible, including
+state file keys, but not their contents. Tested from `log-archive-readonly`:
+versioning and bucket policy readable, `GetObject` on a state file and
+`PutBucketTagging` denied. The permission set keeps its name, so profiles
+didn't change.
+
+The operator joins `readers` and
 uses `<account>-readonly` profiles by default, admin profiles only to change
 something. A `test-reader` user exists to check the group from the outside.
 

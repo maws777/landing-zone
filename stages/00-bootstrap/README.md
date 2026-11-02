@@ -18,7 +18,7 @@ S3 in management, and since step 5 to S3 in log-archive (step 7 below). Region
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
 | S3 state bucket (log-archive) | `state-log-archive.tf`: versioned, SSE-S3, public access blocked, TLS-only, history expiry, plus CI state roles; ADR 0009 |
 | GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
-| Read-only access | `read-only-access.tf`: `ViewOnlyAccess` permission set, `readers` group (you + `test-reader`) on all 7 accounts, ADR 0010 |
+| Read-only access | `read-only-access.tf`: `ViewOnlyAccess` permission set (+ `SecurityAudit`), `readers` group (you + `test-reader`) on all 7 accounts, ADR 0010 |
 | Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
 
 Account layout:
@@ -286,8 +286,9 @@ means an old state file can't be pushed over the new one by accident.
 
 ### 8. Read-only access (roadmap step 6, ADR 0010)
 
-`read-only-access.tf` adds a `ViewOnlyAccess` permission set and a `readers`
-group on every account, with you and a `test-reader` user in it. Locally this
+`read-only-access.tf` adds a `ViewOnlyAccess` permission set (AWS's
+`ViewOnlyAccess` + `SecurityAudit` policies: configuration yes, data no) and
+a `readers` group on every account, with you and a `test-reader` user in it. Locally this
 stage now needs two profiles: `management-admin` (AWS_PROFILE) and
 `log-archive-admin` (the log-archive provider and the state backend).
 
