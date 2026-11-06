@@ -101,6 +101,49 @@ Don't start until the landing zone is done.
 
 ---
 
+## 2026-11-06 (later) — consistency review of everything so far
+
+Prompted by a miss in PR #17: the workflow's path filter listed stages by
+name and didn't include `03-dns`, so a PR touching only that stage would have
+run no plan and no apply, silently. Reviewed every stage, the workflow, the
+script, the READMEs and the ADRs for the same kind of thing.
+
+**Fixed (PR "Consistency review"):**
+
+- **Workflow trigger** (the one real bug): `stages/**` minus
+  `!stages/00-bootstrap/**` instead of a list of stages, so a new stage can't
+  be forgotten. The matrices still list stages; a stage missing there shows
+  up as a missing plan job, which is visible.
+- Stale comments: `imports.tf` (trusted services since step 3),
+  `scp-region.tf` (the step 8 exception is Bedrock inference via the `eu.`
+  profile, not embeddings), `bucket.tf` (the log-archive SCP exists now),
+  `ci-identity.tf` ("no iam:*" but there is one IAM read).
+- READMEs: bootstrap's "What it creates" was missing `log-archive-access.tf`
+  and `logging-prereqs.tf`; its OAAR note now names `network-admin` too;
+  guardrails' deploy table was missing `review-plan`.
+- ADRs: 0006 gets an update (root at 4/5, OAAR statement, Bedrock instead of
+  embeddings); 0010 names PR #16; **new ADR 0011** for step 7 (delegated
+  subdomain in network), which had none.
+
+Checked and fine: no real account ID or email in any tracked file or in git
+history, no tfvars/tfplan/state ever committed; all four stages plan "No
+changes" locally after the fixes.
+
+**Seen, deliberately not changed:**
+
+- Every merge asks for one approval per stage even when its plan is "No
+  changes". Skipping those needs per-stage outputs from a matrix job, which
+  GitHub makes awkward. Worth a small PR later.
+- `account_emails` isn't `sensitive` (unlike `test_reader_email`), so local
+  bootstrap plans print root emails. Bootstrap never runs in CI (ADR 0004).
+- Provider versions differ per stage (6.66 to 6.72) within `~> 6.0`. Harmless.
+- The DNS apply role could rewrite the zone's own NS records with
+  `ChangeResourceRecordSets`. Applies are reviewed; narrowing by record type
+  can come with step 8.
+- GoDaddy now sits inside the security boundary (ADR 0011): check MFA is on.
+
+---
+
 ## 2026-11-06 — step 6 done (OAAR locked at the root), step 7 started
 
 **Step 6 part B, rollout step 1 (PR #15):** `lock-organization-access-role` on

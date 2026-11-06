@@ -26,9 +26,9 @@ resource "aws_s3_bucket" "logs" {
 #
 # GOVERNANCE, not COMPLIANCE: a principal holding s3:BypassGovernanceRetention
 # can still delete early. COMPLIANCE would stop even root, and a typo in the
-# retention would be a year of storage nobody can remove. The SCP that comes
-# after this stage denies the bypass in member accounts, which closes most of
-# the gap (ADR 0008).
+# retention would be a year of storage nobody can remove. The
+# log-archive-protection SCP (01-guardrails) denies the bypass in member
+# accounts, which closes most of the gap (ADR 0008).
 resource "aws_s3_bucket_object_lock_configuration" "logs" {
   provider = aws.log_archive
 

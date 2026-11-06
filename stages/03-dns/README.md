@@ -3,7 +3,8 @@
 The DNS zone for the app (roadmap step 7): a Route 53 public hosted zone for
 `lab.michaelteplov.com` in the `network` account, delegated from GoDaddy.
 Step 8 puts the MCP endpoint, the dashboard and the ACM validation records in
-it.
+it. Decisions and trade-offs are in
+[ADR 0011](../../docs/decisions/0011-dns-delegated-subdomain.md).
 
 ## What it creates
 

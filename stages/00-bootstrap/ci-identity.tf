@@ -101,7 +101,8 @@ resource "aws_iam_role" "github" {
 # ---------------------------------------------------------------------------
 # What each role may do in AWS. Starts with exactly what 01-guardrails (SCPs)
 # needs, and grows one stage at a time. Deliberately absent from both:
-#   - any iam:* action, so CI can't change its own roles or create new ones
+#   - any IAM write action, so CI can't change its own roles or create new
+#     ones (the one IAM read, iam:GetRole on service-linked roles, is below)
 #   - account creation, closure, moving, or leaving the organization
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "ci_permissions" {

@@ -14,17 +14,21 @@
 
 name: terraform
 
+# Any stage except 00-bootstrap (local-only, ADR 0004). A pattern rather than a
+# list of stages: a list has to be updated for every new stage, and forgetting
+# fails silently (03-dns was missing from it until the 2026-11-06 review).
+# A "!" pattern excludes what an earlier pattern matched, so order matters.
 on:
   pull_request:
     paths:
-      - "stages/01-guardrails/**"
-      - "stages/02-logging/**"
+      - "stages/**"
+      - "!stages/00-bootstrap/**"
       - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
-      - "stages/01-guardrails/**"
-      - "stages/02-logging/**"
+      - "stages/**"
+      - "!stages/00-bootstrap/**"
       - ".github/workflows/terraform.yml"
 
 # Default for every job: read the repo, nothing else. Jobs that talk to AWS add
@@ -48,6 +52,7 @@ jobs:
     # One job per stage. Every stage is planned on every PR: plans are read-only
     # and cheap, and a path filter per stage would be one more thing to get
     # wrong. fail-fast off so one stage's failure doesn't hide the other's plan.
+    # A new stage goes in all three matrices (plan, review-plan, apply).
     strategy:
       fail-fast: false
       matrix:
