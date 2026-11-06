@@ -119,8 +119,9 @@ Through `.github/workflows/terraform.yml`, not by hand:
 
 | Event | Job | Role | Gate |
 |---|---|---|---|
-| Pull request touching this stage | `plan` | `landing-zone-ci-plan` (read-only) | none |
-| Push to `main` touching this stage | `apply` | `landing-zone-ci-apply` | `management` environment: required reviewer, `main` only |
+| Pull request touching any CI stage | `plan` | `landing-zone-ci-plan` (read-only) | none |
+| Push to `main` touching any CI stage | `review-plan` | `landing-zone-ci-plan` (read-only) | none: shows main's plan before anyone approves |
+| Same push, after `review-plan` | `apply` | `landing-zone-ci-apply` | `management` environment: required reviewer, `main` only; refuses to run if its plan differs from the reviewed one |
 
 The roles are defined in [`00-bootstrap/ci-identity.tf`](../00-bootstrap/ci-identity.tf),
 which CI can't apply (ADR 0004).

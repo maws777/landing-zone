@@ -19,13 +19,15 @@
 # aws_service_access_principals is a whole-list attribute, so anything enabled in
 # AWS but absent from organization.tf gets DISABLED on apply.
 #
-# At time of writing, exactly one principal is enabled: sso.amazonaws.com.
-# organization.tf lists that one plus cloudtrail.amazonaws.com.
-#
-# So the correct plan shows cloudtrail.amazonaws.com being ADDED and nothing
-# being removed. If the plan proposes removing sso.amazonaws.com, stop: applying
+# At import time (2026-09-25), exactly one principal was enabled:
+# sso.amazonaws.com. organization.tf listed that one plus
+# cloudtrail.amazonaws.com, so the correct plan ADDED cloudtrail and removed
+# nothing. If a plan ever proposes removing sso.amazonaws.com, stop: applying
 # it would disable Identity Center trusted access and break the only sign-in
 # path into this organization.
+#
+# Since then iam.amazonaws.com was added (step 3, root-access.tf). The rule
+# stays the same: anything enabled in AWS must be in organization.tf.
 # ---------------------------------------------------------------------------
 
 import {

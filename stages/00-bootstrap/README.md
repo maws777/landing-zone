@@ -18,6 +18,8 @@ S3 in management, and since step 5 to S3 in log-archive (step 7 below). Region
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
 | S3 state bucket (log-archive) | `state-log-archive.tf`: versioned, SSE-S3, public access blocked, TLS-only, history expiry, plus CI state roles; ADR 0009 |
 | GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
+| CI log-bucket roles (log-archive) | `log-archive-access.tf`: `ci/landing-zone-ci-logging-{plan,apply}`, bucket configuration only, never the log files; used by `02-logging` (ADR 0008) |
+| CloudTrail service-linked role | `logging-prereqs.tf`: created here so CI never needs `iam:CreateServiceLinkedRole` (ADR 0008) |
 | CI DNS roles (network) | `network-access.tf`: `ci/landing-zone-ci-dns-{plan,apply}`, Route 53 only, no `DeleteHostedZone`; used by `03-dns` (step 7) |
 | Read-only access | `read-only-access.tf`: `ViewOnlyAccess` permission set (+ `SecurityAudit`), `readers` group (you + `test-reader`) on all 7 accounts, ADR 0010 |
 | Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
@@ -80,8 +82,9 @@ and Terraform receives a broken argument ("Invalid target").
 exactly what `organization.tf` declares, so anything enabled in AWS but missing
 from that list gets *disabled* on apply.
 
-Currently enabled in the organization: `sso.amazonaws.com` (only).
-Declared in `organization.tf`: `sso.amazonaws.com` + `cloudtrail.amazonaws.com`.
+At import time (2026-09-25), enabled in the organization: `sso.amazonaws.com`
+(only). Declared in `organization.tf`: `sso.amazonaws.com` +
+`cloudtrail.amazonaws.com`. (`iam.amazonaws.com` was added later, step 3.)
 
 A correct plan **adds** `cloudtrail.amazonaws.com` and **removes nothing**. If it
 proposes removing `sso.amazonaws.com`, stop — applying that disables Identity
@@ -333,8 +336,8 @@ but its root user. It's also a wide door: anyone who can assume roles from
 management gets full admin everywhere, and its use is only visible in CloudTrail.
 Step 6 locks it with an SCP that denies it every action (ADR 0010); detaching
 that SCP from management is the break-glass path. Nothing here uses the role
-any more: the log-archive provider signs in with the `log-archive-admin`
-profile.
+any more: the log-archive and network providers sign in with the
+`log-archive-admin` and `network-admin` profiles.
 
 **`ignore_changes = [role_name]` on accounts.** `role_name` can't be read back
 through the Organizations API, so Terraform sees it as absent on every refresh

@@ -84,7 +84,7 @@ Costs and risks:
   can be used outside `eu-west-3`. Accepted: it matches AWS's own control, and
   narrowing it is a later decision, not a guess.
 - Bedrock embeddings (step 8) may need a documented cross-region exception if
-  the chosen model isn't in Paris.
+  the chosen model isn't in Paris. (Superseded, see the update of 2026-11-06.)
 
 ## Update 2026-10-07
 
@@ -94,3 +94,19 @@ Rollout finished: both policies are attached at the root and were tested from
 created by hand in the console on Day 0, `DenyLeaveAndCloseAccount`, which was
 detached and deleted once the new statement was live at the root. Every SCP in
 the organization is now defined in `stages/01-guardrails`.
+
+## Update 2026-11-06
+
+What changed at the root since the update above:
+
+- `log-archive-protection` (ADR 0008) joined the root without a Sandbox step:
+  it names one bucket, which isn't in Sandbox.
+- `baseline-protections` gained `DenyOrganizationAccountAccessRole`
+  (ADR 0010), after its own Sandbox round as a standalone policy.
+- The root holds 4 of 5 SCPs (`FullAWSAccess`, baseline, region,
+  log-archive). New statements go into existing policies, not new ones.
+- The step 8 exception is no longer about embeddings (the app has none). It is
+  Bedrock inference for the dashboard summaries: Claude Haiku has no endpoint
+  in Paris, and the `eu.` geo inference profile routes to other EU regions, so
+  `bedrock:InvokeModel*` will be allowed in those regions only. It gets its own
+  ADR when it is written.

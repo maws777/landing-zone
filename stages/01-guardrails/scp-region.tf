@@ -18,9 +18,13 @@
 # that only show up as a confusing AccessDenied weeks later. When AWS updates
 # it, update it here too.
 #
-# Known future exception: Bedrock embeddings (roadmap step 8), if the chosen
-# model isn't served in eu-west-3. That would be a deliberate, documented
-# addition, not a widening of this list.
+# Known future exception (roadmap step 8): the dashboard's AI summaries call
+# Claude Haiku on Bedrock, which has no in-region endpoint in Paris. From
+# eu-west-3 the `eu.` geo inference profile routes to other EU regions, and a
+# call fails if an SCP blocks any of them. So bedrock:InvokeModel* will be
+# allowed in those EU regions only, as a deliberate, documented exception (its
+# own ADR), not a widening of this list. Re-check the routing with
+# GetInferenceProfile before writing it.
 
 locals {
   region_deny_exempt_actions = [
