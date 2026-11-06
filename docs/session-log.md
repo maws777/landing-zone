@@ -5,20 +5,23 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-10-26)
+## Resume here (updated 2026-11-06)
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap steps 1 to 5 done.** CI/CD (1), SCPs (2), root
-access (3), logging (4, org trail into the Object Lock bucket in log-archive)
-and, since 2026-10-26, Terraform state in log-archive (5, ADR 0009).
+**State of the world: roadmap steps 1 to 6 done, step 7 in a PR.** CI/CD (1),
+SCPs (2), root access (3), logging (4, org trail into the Object Lock bucket in
+log-archive), Terraform state in log-archive (5, ADR 0009) and, since
+2026-11-06, `OrganizationAccountAccessRole` locked + read-only access (6,
+ADR 0010).
 
 - Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
   `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
 - **SCPs at the root:** `FullAWSAccess`, `baseline-protections` (deny leave
-  org, close account, long-term root credentials) and `region-restriction`
-  (only `eu-west-3` + global services). Both ours are Terraform, `01-guardrails`.
-  3 of 5 slots used. Every SCP in the org is in Terraform; the Day 0 manual
+  org, close account, long-term root credentials, `OrganizationAccountAccessRole`),
+  `region-restriction` (only `eu-west-3` + global services) and
+  `log-archive-protection`. Ours are Terraform, `01-guardrails`.
+  4 of 5 slots used. Every SCP in the org is in Terraform; the Day 0 manual
   one is deleted.
 - 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
   `AdministratorAccess` on all of them via Identity Center.
@@ -53,14 +56,18 @@ terraform plan    # expect: No changes
 member roots without credentials, password recovery refused (tested).
 Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
 
-**In progress: roadmap step 6 (ADR 0010).** Part A applied locally (branch
-`access/lock-oaar`): nothing in the repo uses `OrganizationAccountAccessRole`
-any more (bootstrap's log-archive provider and local `02-logging` use the
-`log-archive-admin` profile), `ViewOnlyAccess` permission set (with
-`ViewOnlyAccess` + `SecurityAudit` policies since 2026-11-02) + `readers`
-group (michael, `test-reader`) on all 7 accounts, `<account>-readonly` CLI
-profiles. Part B next: break-glass SCP denying the role every action, Sandbox
-OU first, then folded into `baseline-protections`.
+**Roadmap step 6 done (ADR 0010).** `OrganizationAccountAccessRole` can be
+assumed but can do nothing in any member account (statement in
+`baseline-protections`; break glass = detach it from management). Nothing in
+the repo uses the role: bootstrap and local runs use Identity Center profiles
+(`log-archive-admin`, `network-admin`). `ViewOnlyAccess` permission set
+(`ViewOnlyAccess` + `SecurityAudit`) + `readers` group on all 7 accounts,
+`<account>-readonly` CLI profiles; use those by default.
+
+**In progress: roadmap step 7.** CI roles `ci/landing-zone-ci-dns-{plan,apply}`
+in network applied from `00-bootstrap`. Stage `03-dns` (hosted zone
+`lab.michaelteplov.com`, $0.50/month) in a PR, applied by CI. Then: the four
+NS records at GoDaddy, and `nslookup -type=NS lab.michaelteplov.com 8.8.8.8`.
 
 **Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
 (ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
@@ -68,9 +75,9 @@ OU first, then folded into `baseline-protections`.
 **Checking the logs:** `validate-logs` from `log-archive-admin` with
 `--account-id` (see `stages/02-logging/README.md`).
 
-**After step 5:** step 6 (restrict `OrganizationAccountAccessRole`, read-only
-permission set), step 7 (Route 53 zone for `lab.michaelteplov.com`), then the
-app.
+**After step 7:** the app (step 8), starting with the two spikes (claude.ai →
+Cognito, iPhone PWA → Cognito). The VPC half of step 7 waits for the optional
+ECS stack.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
@@ -90,6 +97,33 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-11-06 — step 6 done (OAAR locked at the root), step 7 started
+
+**Step 6 part B, rollout step 1 (PR #15):** `lock-organization-access-role` on
+the Sandbox OU, applied by CI (2 added). Tested from `management-admin`:
+assuming `OrganizationAccountAccessRole` in sandbox works (management is outside
+SCPs), then `iam list-roles` and `s3 ls` → explicit deny citing the new SCP.
+`sandbox-admin`/`sandbox-readonly` fine. Control: the role still worked in
+staging, so the deny came from that SCP and nothing else.
+
+**Rollout step 2 (PR #16):** statement folded into `baseline-protections`,
+standalone policy + attachment destroyed (1 changed, 2 destroyed). Re-tested in
+staging and sandbox: denied, now by `baseline-protections`. Root back to 4 of 5
+slots.
+
+Gotcha worth remembering: `sts get-caller-identity` succeeds even under a
+`Deny *` SCP. It needs no permission, so it proves the assume worked, not that
+the lock failed.
+
+**Step 7, bootstrap part (local apply):** `network-access.tf` adds
+`ci/landing-zone-ci-dns-{plan,apply}` in network (Route 53 only, Deny
+`DeleteHostedZone`, each trusting only its management CI counterpart), plus
+`AssumeNetworkDnsRole` in `ci-identity.tf` and an `aws.network` provider on
+`network-admin`. 4 added, 2 changed; re-plan clean. This had to come before
+the `03-dns` PR: CI can't plan a stage whose role doesn't exist yet.
 
 ---
 

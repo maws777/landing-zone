@@ -64,3 +64,21 @@ provider "aws" {
     }
   }
 }
+
+# A third provider, for the network account (network-access.tf): the CI roles
+# 03-dns runs as. Same pattern as log-archive: its own Identity Center
+# profile, and a check that the profile really lands in network.
+provider "aws" {
+  alias   = "network"
+  region  = var.region
+  profile = var.network_profile
+
+  allowed_account_ids = [aws_organizations_account.member["network"].id]
+
+  default_tags {
+    tags = {
+      project      = "landing-zone"
+      "managed-by" = "terraform"
+    }
+  }
+}
