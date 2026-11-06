@@ -2,8 +2,9 @@
 
 Date: 2026-10-26
 
-Status: accepted (part 1 applied with this ADR; the SCP follows in a
-separate change, Sandbox OU first)
+Status: accepted, fully applied. Part 1 with this ADR; the SCP on the
+Sandbox OU on 2026-11-06 (PR #15, tested), then folded into
+`baseline-protections` at the root.
 
 ## Context
 
