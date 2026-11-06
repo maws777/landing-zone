@@ -144,6 +144,15 @@ data "aws_iam_policy_document" "ci_permissions" {
     resources = [aws_iam_role.log_archive_ci[each.key].arn]
   }
 
+  # --- 03-dns (roadmap step 7) -----------------------------------------------
+
+  # The hop into network (network-access.tf), only into the matching role.
+  statement {
+    sid       = "AssumeNetworkDnsRole"
+    actions   = ["sts:AssumeRole"]
+    resources = [aws_iam_role.network_dns_ci[each.key].arn]
+  }
+
   # --- State in log-archive (ADR 0009) --------------------------------------
 
   # The backend's hop to the state bucket (state-log-archive.tf), again only

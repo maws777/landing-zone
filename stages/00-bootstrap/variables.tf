@@ -85,6 +85,15 @@ variable "log_archive_profile" {
   default     = "log-archive-admin"
 }
 
+variable "network_profile" {
+  description = <<-EOT
+    AWS CLI profile the network provider signs in with (versions.tf): an
+    Identity Center profile with admin rights in network.
+  EOT
+  type        = string
+  default     = "network-admin"
+}
+
 # Read-only access (read-only-access.tf, ADR 0010).
 variable "operator_user_name" {
   description = "Identity Center user name of the person running this stage. Joins the readers group."

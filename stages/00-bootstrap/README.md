@@ -18,6 +18,7 @@ S3 in management, and since step 5 to S3 in log-archive (step 7 below). Region
 | 6 Identity Center assignments | `admins` group → `AdministratorAccess` on each account |
 | S3 state bucket (log-archive) | `state-log-archive.tf`: versioned, SSE-S3, public access blocked, TLS-only, history expiry, plus CI state roles; ADR 0009 |
 | GitHub OIDC provider + CI roles | `ci-identity.tf`, ADR 0004 |
+| CI DNS roles (network) | `network-access.tf`: `ci/landing-zone-ci-dns-{plan,apply}`, Route 53 only, no `DeleteHostedZone`; used by `03-dns` (step 7) |
 | Read-only access | `read-only-access.tf`: `ViewOnlyAccess` permission set (+ `SecurityAudit`), `readers` group (you + `test-reader`) on all 7 accounts, ADR 0010 |
 | Centralized root access | `root-access.tf`: IAM trusted access + `RootCredentialsManagement` + `RootSessions`, ADR 0007 |
 
@@ -290,7 +291,9 @@ means an old state file can't be pushed over the new one by accident.
 `ViewOnlyAccess` + `SecurityAudit` policies: configuration yes, data no) and
 a `readers` group on every account, with you and a `test-reader` user in it. Locally this
 stage now needs two profiles: `management-admin` (AWS_PROFILE) and
-`log-archive-admin` (the log-archive provider and the state backend).
+`log-archive-admin` (the log-archive provider and the state backend). Since
+step 7 a third, `network-admin`, for the network provider
+(`network-access.tf`). One `aws sso login` covers all three.
 
 Read-only CLI profiles, one per account, same pattern as step 5:
 
