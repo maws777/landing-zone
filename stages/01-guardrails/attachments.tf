@@ -13,8 +13,8 @@
 # in Sandbox, so there is nothing to test there. It names one bucket ARN, so
 # at the root it can't affect anything else.
 #
-# break-glass (step 6, ADR 0010) is at step 1, on the Sandbox OU. Once tested,
-# its statement moves into baseline-protections and the policy goes away.
+# The OrganizationAccountAccessRole lock (step 6, ADR 0010) went through the
+# Sandbox OU as its own policy, then moved into baseline-protections.
 #
 # Limit to keep in mind: at most 5 SCPs per target. At the root: FullAWSAccess
 # + baseline, region, log_archive = 4 of 5. The Bedrock exception (step 8) goes
@@ -22,8 +22,7 @@
 
 locals {
   scp_targets = {
-    root    = local.root_id
-    sandbox = local.ou_ids["Sandbox"]
+    root = local.root_id
   }
 
   # Each policy and the targets it is attached to.
@@ -31,7 +30,6 @@ locals {
     baseline    = { id = aws_organizations_policy.baseline.id, targets = ["root"] }
     region      = { id = aws_organizations_policy.region.id, targets = ["root"] }
     log_archive = { id = aws_organizations_policy.log_archive.id, targets = ["root"] }
-    break_glass = { id = aws_organizations_policy.break_glass.id, targets = ["sandbox"] }
   }
 
   # "baseline/root" => { policy_id, target_id }. Same keys as before per-policy

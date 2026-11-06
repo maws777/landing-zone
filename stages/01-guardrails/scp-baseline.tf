@@ -63,11 +63,40 @@ data "aws_iam_policy_document" "baseline" {
       values   = ["true"]
     }
   }
+
+  # Lock OrganizationAccountAccessRole ("break glass", roadmap step 6, ADR 0010).
+  # Organizations creates this role in every account it creates:
+  # AdministratorAccess, trusting the whole management account, so anyone in
+  # management allowed sts:AssumeRole would be admin everywhere without MFA or
+  # Identity Center. Nothing uses it since step 6 part A.
+  #
+  # The role still exists and can still be assumed (AssumeRole is called by a
+  # principal in management, which SCPs don't bind), but every action it then
+  # takes in a member account is denied. To break the glass in an emergency,
+  # detach this policy from the root using the management account; that
+  # DetachPolicy is a CloudTrail event step 9 can alarm on.
+  #
+  # aws:PrincipalArn is the role's ARN, not the session ARN, so the session name
+  # the caller picks doesn't matter. The account is a wildcard so new accounts
+  # are covered without a change. Tested on the Sandbox OU as a standalone
+  # policy first (2026-11-06), then moved here.
+  statement {
+    sid       = "DenyOrganizationAccountAccessRole"
+    effect    = "Deny"
+    actions   = ["*"]
+    resources = ["*"]
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:PrincipalArn"
+      values   = ["arn:aws:iam::*:role/OrganizationAccountAccessRole"]
+    }
+  }
 }
 
 resource "aws_organizations_policy" "baseline" {
   name        = "baseline-protections"
-  description = "Deny leaving the organization, closing accounts, and use of member-account root credentials. Managed by 01-guardrails."
+  description = "Deny leaving the organization, closing accounts, use of member-account root credentials, and OrganizationAccountAccessRole. Managed by 01-guardrails."
   type        = "SERVICE_CONTROL_POLICY"
 
   # Minified: SCPs are capped at 5,120 characters and whitespace counts.

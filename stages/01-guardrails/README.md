@@ -8,13 +8,12 @@ rather than from a laptop.
 
 | SCP | Denies | Attached to |
 |---|---|---|
-| `baseline-protections` | Leaving the organization; closing an account from inside it; any use of a member account's root password or keys (short-lived `AssumeRoot` sessions still work) | Organization root |
+| `baseline-protections` | Leaving the organization; closing an account from inside it; any use of a member account's root password or keys (short-lived `AssumeRoot` sessions still work); every action by `OrganizationAccountAccessRole` (break glass: detach from management to restore, ADR 0010) | Organization root |
 | `region-restriction` | Any action outside `eu-west-3`, except global services (list copied from AWS's Region deny control) | Organization root |
 | `log-archive-protection` | Changing or deleting the CloudTrail bucket's configuration (except the log-archive CI apply role); deleting, unlocking, re-locking or writing log files (no exception) | Organization root |
-| `lock-organization-access-role` | Every action by `OrganizationAccountAccessRole` (break glass: detach from management to restore, ADR 0010) | Sandbox OU (rollout step 1) |
 
 Why each statement exists is commented in `scp-baseline.tf`,
-`scp-region.tf`, `scp-log-archive.tf` and `scp-break-glass.tf`. The reasoning behind the overall approach is in
+`scp-region.tf` and `scp-log-archive.tf`. The reasoning behind the overall approach is in
 [ADR 0006](../../docs/decisions/0006-scp-strategy.md).
 
 Cost: none. SCPs are free.
@@ -63,15 +62,15 @@ aws iam list-roles --max-items 1 --profile sandbox-admin
 
 Leaving the organization is tested by reading the policy, not by trying it.
 
-### Testing `lock-organization-access-role`
+### Testing the `OrganizationAccountAccessRole` lock
 
-From `management-admin`, assume the role in a covered account and try any
+From `management-admin`, assume the role in any member account and try any
 call. The assume itself succeeds (management is outside SCPs); the call is
 denied with "explicit deny in a service control policy". `sts
 get-caller-identity` is no test: it needs no permission and is never denied.
 
 ```powershell
-$id = "<sandbox account id>"
+$id = "<member account id>"
 $c = aws sts assume-role --role-arn "arn:aws:iam::${id}:role/OrganizationAccountAccessRole" `
   --role-session-name break-glass-test --profile management-admin --query Credentials | ConvertFrom-Json
 $env:AWS_ACCESS_KEY_ID=$c.AccessKeyId; $env:AWS_SECRET_ACCESS_KEY=$c.SecretAccessKey; $env:AWS_SESSION_TOKEN=$c.SessionToken
@@ -79,7 +78,7 @@ aws iam list-roles     # expect AccessDenied ... service control policy
 Remove-Item Env:AWS_ACCESS_KEY_ID, Env:AWS_SECRET_ACCESS_KEY, Env:AWS_SESSION_TOKEN
 ```
 
-Then check `sandbox-admin` and `sandbox-readonly` still work.
+Then check that account's `-admin` and `-readonly` profiles still work.
 
 ### Testing `log-archive-protection`
 
