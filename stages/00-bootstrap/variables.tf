@@ -85,6 +85,31 @@ variable "log_archive_profile" {
   default     = "log-archive-admin"
 }
 
+variable "staging_profile" {
+  description = "AWS CLI profile the staging provider signs in with (versions.tf): Identity Center admin in staging."
+  type        = string
+  default     = "staging-admin"
+}
+
+# The app repository (ADR 0012, 0013). Like the IDs above, public on
+# api.github.com and part of the immutable OIDC subject.
+variable "mcp_repository" {
+  description = "Name of the MCP app repository, without the owner."
+  type        = string
+  default     = "mcp-servers"
+}
+
+variable "mcp_repository_id" {
+  description = "Numeric ID of the MCP app repository, as embedded in immutable OIDC subject claims."
+  type        = string
+  default     = "1448790072"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.mcp_repository_id))
+    error_message = "mcp_repository_id must be the repository's numeric ID (gh api repos/<owner>/<repo> --jq .id)."
+  }
+}
+
 variable "network_profile" {
   description = <<-EOT
     AWS CLI profile the network provider signs in with (versions.tf): an

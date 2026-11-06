@@ -76,9 +76,16 @@ Name servers: `terraform output name_servers` in `stages/03-dns`.
 **Checking the logs:** `validate-logs` from `log-archive-admin` with
 `--account-id` (see `stages/02-logging/README.md`).
 
-**After step 7:** the app (step 8), starting with the two spikes (claude.ai →
-Cognito, iPhone PWA → Cognito). The VPC half of step 7 waits for the optional
-ECS stack.
+**In progress: roadmap step 8 (the app).** Platform side for staging done
+(ADR 0012, 0013): repo `maws777/mcp-servers` (public, `staging` environment,
+`main` only, no reviewer), and in staging `ci/mcp-ci-{plan,apply}` (OIDC in
+the staging account itself), boundary `platform/mcp-workload-boundary`, state
+bucket `mcp-tfstate-<staging id>`; in network `ci/mcp-dns-staging-{plan,apply}`
+limited to `*.staging.lab.michaelteplov.com`. `terraform output mcp_staging`
+in 00-bootstrap has the ARNs. Next: spike 1 in `mcp-servers` (claude.ai →
+Cognito → Lambda validates the token), then spike 2 (iPhone PWA). Prod is a
+second module block in `workloads.tf` once staging works. The VPC half of
+step 7 waits for the optional ECS stack.
 
 **Checklist before writing any SCP:** `list-policies-for-target` on the root,
 every OU *and every account*.
@@ -98,6 +105,43 @@ commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
 **App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
 note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
 Don't start until the landing zone is done.
+
+---
+
+## 2026-11-06 (night) — step 8 platform side: the app's way into staging
+
+Decided (ADR 0012): **one MCP server per app**, all in one repo
+(`mcp-servers`), one Cognito user pool per environment shared by the apps,
+each app its own resource server and scopes, its own table, role, ECR repo
+and endpoint (`<app>.mcp.staging.lab...`). Every resource named `mcp-*` /
+under `mcp/`. TypeScript with the official SDK. Rejected: one global server
+(every tool in every conversation, one token with every scope).
+
+Built (ADR 0013): `modules/workload-ci`, called once from
+`00-bootstrap/workloads.tf` for staging. 17 added, re-plan clean. Created the
+GitHub repo and its `staging` environment (deployment branches: `main`).
+
+Checked with `iam simulate-principal-policy` on `ci/mcp-ci-apply`: role under
+`/mcp/` with the boundary allowed, without it or outside `/mcp/` denied;
+removing a boundary, editing its own role, assuming a `/mcp/` role, reading a
+DynamoDB item and invoking a function all explicitDeny; `mcp-*` table,
+function and image push allowed; a non-`mcp-` function denied; PassRole to
+Lambda allowed, to EC2 denied.
+
+Gotchas:
+
+- **The simulator doesn't set `aws:RequestedRegion`.** Without it, the region
+  SCP denies every regional action (its condition is "not eu-west-3", and a
+  missing key counts as not equal), so `CreateTable` came back explicitDeny.
+  Pass the region as a context entry.
+- **Same-account trust is enough on its own.** A role whose trust policy names
+  a principal can be assumed by it without any Allow in the caller's policy.
+  So "CI may create roles under /mcp/" also meant "CI may create a role that
+  trusts itself and assume it". Closed with an explicit Deny on
+  `sts:AssumeRole` except the DNS role.
+- API Gateway creates its service-linked role on the first API in an account,
+  with the caller's permissions. Created in the module instead, like the
+  CloudTrail one.
 
 ---
 

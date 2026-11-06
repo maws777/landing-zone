@@ -43,6 +43,16 @@ output "log_archive_state_bucket_name" {
   value       = aws_s3_bucket.la_state.id
 }
 
+output "mcp_staging" {
+  description = "What the MCP app repository needs for staging: CI role ARNs, DNS role ARNs, state bucket, permissions boundary."
+  value = {
+    ci_roles             = module.mcp_staging.ci_role_arns
+    dns_roles            = module.mcp_staging.dns_role_arns
+    state_bucket         = module.mcp_staging.state_bucket_name
+    permissions_boundary = module.mcp_staging.permissions_boundary_arn
+  }
+}
+
 output "log_archive_state_ci_role_arns" {
   description = "Roles in log-archive that CI's backend assumes to read and lock state."
   value       = { for name, role in aws_iam_role.la_state_ci : name => role.arn }
