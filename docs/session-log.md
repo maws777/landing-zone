@@ -9,7 +9,7 @@ re-deriving where things stood. Newest session first.
 
 Read this block first; the entries below have the detail if needed.
 
-**State of the world: roadmap steps 1 to 6 done, step 7 in a PR.** CI/CD (1),
+**State of the world: roadmap steps 1 to 7 done (landing zone ready for the app).** CI/CD (1),
 SCPs (2), root access (3), logging (4, org trail into the Object Lock bucket in
 log-archive), Terraform state in log-archive (5, ADR 0009) and, since
 2026-11-06, `OrganizationAccountAccessRole` locked + read-only access (6,
@@ -64,10 +64,11 @@ the repo uses the role: bootstrap and local runs use Identity Center profiles
 (`ViewOnlyAccess` + `SecurityAudit`) + `readers` group on all 7 accounts,
 `<account>-readonly` CLI profiles; use those by default.
 
-**In progress: roadmap step 7.** CI roles `ci/landing-zone-ci-dns-{plan,apply}`
-in network applied from `00-bootstrap`. Stage `03-dns` (hosted zone
-`lab.michaelteplov.com`, $0.50/month) in a PR, applied by CI. Then: the four
-NS records at GoDaddy, and `nslookup -type=NS lab.michaelteplov.com 8.8.8.8`.
+**Roadmap step 7 done (DNS half).** Stage `03-dns` (CI): public hosted zone
+`lab.michaelteplov.com` in network ($0.50/month), delegated by four `lab` NS
+records at GoDaddy. CI reaches network through
+`ci/landing-zone-ci-dns-{plan,apply}` (`00-bootstrap/network-access.tf`).
+Name servers: `terraform output name_servers` in `stages/03-dns`.
 
 **Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
 (ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
@@ -124,6 +125,13 @@ the lock failed.
 `AssumeNetworkDnsRole` in `ci-identity.tf` and an `aws.network` provider on
 `network-admin`. 4 added, 2 changed; re-plan clean. This had to come before
 the `03-dns` PR: CI can't plan a stage whose role doesn't exist yet.
+
+**Step 7, zone (PR #17):** CI plan of `03-dns` worked through the new role
+chain; apply created the zone (1 added). Four NS records named `lab` added at
+GoDaddy. Verified: Google (8.8.8.8), Cloudflare (1.1.1.1) and GoDaddy's own
+`ns15.domaincontrol.com` all return the four `awsdns` servers; the zone's SOA
+answers from AWS. Each resolver listed them in a different order, which is
+fine: order means nothing, resolvers pick the fastest.
 
 ---
 
