@@ -82,3 +82,21 @@ provider "aws" {
     }
   }
 }
+
+# A fourth, for the staging account (workloads.tf): the platform pieces the app
+# repository deploys through. Same pattern, Identity Center profile and an
+# account check.
+provider "aws" {
+  alias   = "staging"
+  region  = var.region
+  profile = var.staging_profile
+
+  allowed_account_ids = [aws_organizations_account.member["staging"].id]
+
+  default_tags {
+    tags = {
+      project      = "landing-zone"
+      "managed-by" = "terraform"
+    }
+  }
+}
