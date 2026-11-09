@@ -17,8 +17,8 @@
 # Sandbox OU as its own policy, then moved into baseline-protections.
 #
 # Limit to keep in mind: at most 5 SCPs per target. At the root: FullAWSAccess
-# + baseline, region, log_archive = 4 of 5. The Bedrock exception (step 8) goes
-# inside region-restriction, not into a new policy.
+# + baseline, region, log_archive = 4 of 5. The Bedrock exception (ADR 0014)
+# lives inside region-restriction, not in a new policy.
 
 locals {
   scp_targets = {

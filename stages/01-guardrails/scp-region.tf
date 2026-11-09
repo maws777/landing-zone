@@ -18,13 +18,14 @@
 # that only show up as a confusing AccessDenied weeks later. When AWS updates
 # it, update it here too.
 #
-# Known future exception (roadmap step 8): the dashboard's AI summaries call
-# Claude Haiku on Bedrock, which has no in-region endpoint in Paris. From
-# eu-west-3 the `eu.` geo inference profile routes to other EU regions, and a
-# call fails if an SCP blocks any of them. So bedrock:InvokeModel* will be
-# allowed in those EU regions only, as a deliberate, documented exception (its
-# own ADR), not a widening of this list. Re-check the routing with
-# GetInferenceProfile before writing it.
+# One deliberate exception (ADR 0014): calling a model on Bedrock. The
+# dashboard's AI summaries use Claude Haiku, which Bedrock only serves through
+# the `eu.` geo inference profile: called from Paris, the request may be run
+# in any of the EU regions below, and it fails if an SCP denies any of them.
+# So the two invoke actions skip the home-region rule and get their own,
+# wider but still EU-only rule (second statement). Everything else is
+# unchanged. Routing checked 2026-11-09 with GetInferenceProfile on
+# eu.anthropic.claude-haiku-5-5; re-check it when the model changes.
 
 locals {
   region_deny_exempt_actions = [
@@ -117,17 +118,51 @@ locals {
   ]
 }
 
+locals {
+  # Model invocation only: no Bedrock configuration, agents or knowledge bases
+  # outside Paris. (The Converse API is authorized as InvokeModel.)
+  bedrock_invoke_actions = [
+    "bedrock:InvokeModel",
+    "bedrock:InvokeModelWithResponseStream",
+  ]
+
+  # Where the eu. profile may run a request (GetInferenceProfile, 2026-11-09):
+  # Stockholm, Paris, Milan, Spain, Ireland, Frankfurt.
+  bedrock_eu_regions = [
+    "eu-central-1",
+    "eu-north-1",
+    "eu-south-1",
+    "eu-south-2",
+    "eu-west-1",
+    "eu-west-3",
+  ]
+}
+
 data "aws_iam_policy_document" "region" {
   statement {
     sid         = "DenyOutsideHomeRegion"
     effect      = "Deny"
-    not_actions = local.region_deny_exempt_actions
+    not_actions = concat(local.region_deny_exempt_actions, local.bedrock_invoke_actions)
     resources   = ["*"]
 
     condition {
       test     = "StringNotEquals"
       variable = "aws:RequestedRegion"
       values   = [var.region]
+    }
+  }
+
+  # The invoke actions skipped above, held to the EU instead (ADR 0014).
+  statement {
+    sid       = "DenyBedrockOutsideEU"
+    effect    = "Deny"
+    actions   = local.bedrock_invoke_actions
+    resources = ["*"]
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:RequestedRegion"
+      values   = local.bedrock_eu_regions
     }
   }
 }
