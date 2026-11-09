@@ -54,6 +54,14 @@ data "aws_iam_policy_document" "boundary" {
     ]
   }
 
+  # A schedule's role invoking its function (the nightly summary). Only the
+  # apps' own functions.
+  statement {
+    sid       = "InvokeAppFunctions"
+    actions   = ["lambda:InvokeFunction"]
+    resources = ["arn:aws:lambda:${var.region}:${local.account_id}:function:mcp-*"]
+  }
+
   # Tracing. X-Ray has no resource-level permissions for these.
   statement {
     sid       = "Tracing"

@@ -10,10 +10,20 @@
 
 locals {
   arn_prefix = {
-    lambda = "arn:aws:lambda:${var.region}:${local.account_id}"
-    logs   = "arn:aws:logs:${var.region}:${local.account_id}"
-    ddb    = "arn:aws:dynamodb:${var.region}:${local.account_id}"
-    iam    = "arn:aws:iam::${local.account_id}"
+    lambda    = "arn:aws:lambda:${var.region}:${local.account_id}"
+    logs      = "arn:aws:logs:${var.region}:${local.account_id}"
+    ddb       = "arn:aws:dynamodb:${var.region}:${local.account_id}"
+    iam       = "arn:aws:iam::${local.account_id}"
+    scheduler = "arn:aws:scheduler:${var.region}:${local.account_id}"
+  }
+
+  # App buckets are named mcp-<app>-<env>-<purpose>-<account id> (bucket names
+  # are global, hence the ID). The pattern needs "-<env>-" in the middle on
+  # purpose: a plain mcp-* would also match the state bucket, mcp-tfstate-<id>,
+  # and let an app's deploy delete or rewrite its own state's bucket.
+  app_buckets = {
+    bucket  = "arn:aws:s3:::mcp-*-${var.environment}-*"
+    objects = "arn:aws:s3:::mcp-*-${var.environment}-*/*"
   }
 }
 
@@ -103,8 +113,20 @@ data "aws_iam_policy_document" "ci" {
       "logs:Describe*",
       "logs:ListTagsForResource",
       "logs:ListTagsLogGroup",
+      "cloudfront:Describe*",
+      "cloudfront:Get*",
+      "cloudfront:List*",
+      "scheduler:Get*",
+      "scheduler:List*",
     ]
     resources = ["*"]
+  }
+
+  # The apps' website buckets: configuration and the (public) site files.
+  statement {
+    sid       = "ReadAppBuckets"
+    actions   = ["s3:Get*", "s3:List*"]
+    resources = [local.app_buckets.bucket, local.app_buckets.objects]
   }
 
   # --- Never user data (both roles) -------------------------------------------
@@ -191,6 +213,30 @@ data "aws_iam_policy_document" "ci" {
     }
   }
 
+  # The dashboard's static site (roadmap step 8, phase 4).
+  dynamic "statement" {
+    for_each = each.key == "apply" ? [1] : []
+    content {
+      sid       = "AppBuckets"
+      actions   = ["s3:*"]
+      resources = [local.app_buckets.bucket, local.app_buckets.objects]
+    }
+  }
+
+  # The nightly "day closed" summary runs on EventBridge Scheduler, which can
+  # fire in Europe/Paris time (plain EventBridge rules only know UTC).
+  dynamic "statement" {
+    for_each = each.key == "apply" ? [1] : []
+    content {
+      sid     = "AppSchedules"
+      actions = ["scheduler:*"]
+      resources = [
+        "${local.arn_prefix.scheduler}:schedule/*/mcp-*",
+        "${local.arn_prefix.scheduler}:schedule-group/mcp-*",
+      ]
+    }
+  }
+
   # Account-level calls without a resource ARN: registry login, and the log
   # delivery setup API Gateway access logs need (AWS's documented list for
   # HTTP API logging).
@@ -211,7 +257,8 @@ data "aws_iam_policy_document" "ci" {
     }
   }
 
-  # Random-ID services (see the top of this file).
+  # Random-ID services (see the top of this file). CloudFront distributions,
+  # origin access controls and response headers policies are all random IDs.
   dynamic "statement" {
     for_each = each.key == "apply" ? [1] : []
     content {
@@ -222,6 +269,7 @@ data "aws_iam_policy_document" "ci" {
         "apigateway:PATCH",
         "apigateway:POST",
         "apigateway:PUT",
+        "cloudfront:*",
         "cognito-idp:*",
       ]
       resources = ["*"]
@@ -308,18 +356,19 @@ data "aws_iam_policy_document" "ci" {
     }
   }
 
-  # Handing a role to Lambda when creating a function, and only to Lambda.
+  # Handing a role to Lambda (a function's execution role) or to Scheduler
+  # (the role a schedule uses to invoke its function), and only to those.
   dynamic "statement" {
     for_each = each.key == "apply" ? [1] : []
     content {
-      sid       = "PassRolesToLambda"
+      sid       = "PassRolesToLambdaAndScheduler"
       actions   = ["iam:PassRole"]
       resources = ["${local.arn_prefix.iam}:role/mcp/*"]
 
       condition {
         test     = "StringEquals"
         variable = "iam:PassedToService"
-        values   = ["lambda.amazonaws.com"]
+        values   = ["lambda.amazonaws.com", "scheduler.amazonaws.com"]
       }
     }
   }
@@ -347,6 +396,24 @@ data "aws_iam_policy_document" "ci" {
       "${local.arn_prefix.iam}:policy/platform/*",
       "${local.arn_prefix.iam}:oidc-provider/*",
     ]
+  }
+
+  # The state bucket's own configuration is the platform's (state.tf). The app
+  # bucket pattern above already doesn't match it; this keeps it that way if
+  # the pattern is ever widened. Object reads and writes stay as granted at
+  # the top (versioning keeps every earlier state).
+  statement {
+    sid    = "ProtectStateBucket"
+    effect = "Deny"
+    actions = [
+      "s3:DeleteBucket*",
+      "s3:DeleteObjectVersion",
+      "s3:PutBucket*",
+      "s3:PutEncryptionConfiguration",
+      "s3:PutLifecycleConfiguration",
+      "s3:PutReplicationConfiguration",
+    ]
+    resources = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
   }
 
   # Removing the boundary from a role would lift the ceiling.
