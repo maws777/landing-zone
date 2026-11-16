@@ -26,6 +26,14 @@
 # wider but still EU-only rule (second statement). Everything else is
 # unchanged. Routing checked 2026-11-09 with GetInferenceProfile on
 # eu.anthropic.claude-haiku-5-5; re-check it when the model changes.
+#
+# A second exception (step 9, ADR 0016): the detection StackSet. IAM is
+# global, so its CloudTrail events reach EventBridge only in us-east-1; each
+# account needs one forwarding rule there. Only the StackSets execution role
+# (stacksets-exec-*, created by service-managed StackSets) may create and
+# manage CloudFormation stacks and EventBridge rules in us-east-1. Every other
+# principal keeps the Paris-only rule for those services, and every other
+# region stays closed to everyone.
 
 locals {
   region_deny_exempt_actions = [
@@ -136,13 +144,17 @@ locals {
     "eu-west-1",
     "eu-west-3",
   ]
+
+  # The detection StackSet's own deployments (ADR 0016).
+  stackset_actions       = ["cloudformation:*", "events:*"]
+  stackset_exec_role_arn = "arn:aws:iam::*:role/stacksets-exec-*"
 }
 
 data "aws_iam_policy_document" "region" {
   statement {
     sid         = "DenyOutsideHomeRegion"
     effect      = "Deny"
-    not_actions = concat(local.region_deny_exempt_actions, local.bedrock_invoke_actions)
+    not_actions = concat(local.region_deny_exempt_actions, local.bedrock_invoke_actions, local.stackset_actions)
     resources   = ["*"]
 
     condition {
@@ -163,6 +175,39 @@ data "aws_iam_policy_document" "region" {
       test     = "StringNotEquals"
       variable = "aws:RequestedRegion"
       values   = local.bedrock_eu_regions
+    }
+  }
+
+  # CloudFormation and EventBridge, skipped above: Paris for everyone...
+  statement {
+    sid       = "DenyStackSetServicesOutsideHomeAndUsEast1"
+    effect    = "Deny"
+    actions   = local.stackset_actions
+    resources = ["*"]
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region, "us-east-1"]
+    }
+  }
+
+  # ...and us-east-1 only for the StackSets execution role (ADR 0016).
+  statement {
+    sid       = "DenyStackSetServicesInUsEast1ExceptStackSets"
+    effect    = "Deny"
+    actions   = local.stackset_actions
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = ["us-east-1"]
+    }
+    condition {
+      test     = "ArnNotLike"
+      variable = "aws:PrincipalArn"
+      values   = [local.stackset_exec_role_arn]
     }
   }
 }
