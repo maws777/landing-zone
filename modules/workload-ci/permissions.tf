@@ -270,7 +270,31 @@ data "aws_iam_policy_document" "ci" {
         "apigateway:POST",
         "apigateway:PUT",
         "cloudfront:*",
-        "cognito-idp:*",
+      ]
+      resources = ["*"]
+    }
+  }
+
+  # Cognito: only what an app's own stack declares in the shared pool, its app
+  # clients, its resource server (scopes) and the login page branding. Not
+  # cognito-idp:*: the pool itself (MFA, sign-up, identity providers, deletion
+  # protection) is applied by hand from infra/<env>/shared, and a pipeline
+  # that could change it could switch MFA off or open registration. Pool ARNs
+  # are random IDs, hence "*". Reads are in ReadConfiguration above.
+  dynamic "statement" {
+    for_each = each.key == "apply" ? [1] : []
+    content {
+      sid = "AppCognitoClients"
+      actions = [
+        "cognito-idp:CreateManagedLoginBranding",
+        "cognito-idp:CreateResourceServer",
+        "cognito-idp:CreateUserPoolClient",
+        "cognito-idp:DeleteManagedLoginBranding",
+        "cognito-idp:DeleteResourceServer",
+        "cognito-idp:DeleteUserPoolClient",
+        "cognito-idp:UpdateManagedLoginBranding",
+        "cognito-idp:UpdateResourceServer",
+        "cognito-idp:UpdateUserPoolClient",
       ]
       resources = ["*"]
     }
