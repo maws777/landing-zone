@@ -72,11 +72,17 @@ data "aws_iam_policy_document" "boundary" {
   # The dashboard's AI summaries (roadmap step 8). Which regions it reaches is
   # decided by the region SCP (ADR 0014).
   #
-  # Haiku only: the ceiling is about cost as much as access. With "*" a role
-  # under this boundary could call the most expensive model on Bedrock. A call
-  # through an inference profile is authorized twice, on the profile (in this
-  # account, home region) and on the foundation model in whichever region the
-  # profile routes to (no account in that ARN), so both are listed.
+  # A short list of small, cheap models: the ceiling is about cost as much as
+  # access. With "*" a role under this boundary could call the most expensive
+  # model on Bedrock.
+  #
+  # - Claude Haiku, through the eu. inference profile. A call through a
+  #   profile is authorized twice, on the profile (in this account, home
+  #   region) and on the foundation model in whichever region the profile
+  #   routes to (no account in that ARN), so both are listed.
+  # - DeepSeek V3.2, on demand in Stockholm. Open weights hosted by AWS in
+  #   that region: the prompt stays in the EU and never reaches DeepSeek.
+  #   Interim model while the account's Haiku 5.5 quota is 0 (ADR 0015).
   statement {
     sid = "Bedrock"
     actions = [
@@ -86,6 +92,7 @@ data "aws_iam_policy_document" "boundary" {
     resources = [
       "arn:aws:bedrock:${var.region}:${local.account_id}:inference-profile/eu.anthropic.claude-haiku-*",
       "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-*",
+      "arn:aws:bedrock:eu-north-1::foundation-model/deepseek.v3.2",
     ]
   }
 }
