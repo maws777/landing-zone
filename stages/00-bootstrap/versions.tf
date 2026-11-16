@@ -100,3 +100,20 @@ provider "aws" {
     }
   }
 }
+
+# A fifth, for the security account (security-access.tf): the CI roles the
+# detection stage (roadmap step 9) runs as. Same pattern.
+provider "aws" {
+  alias   = "security"
+  region  = var.region
+  profile = var.security_profile
+
+  allowed_account_ids = [aws_organizations_account.member["security"].id]
+
+  default_tags {
+    tags = {
+      project      = "landing-zone"
+      "managed-by" = "terraform"
+    }
+  }
+}

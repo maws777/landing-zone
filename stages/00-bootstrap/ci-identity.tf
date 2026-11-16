@@ -154,6 +154,15 @@ data "aws_iam_policy_document" "ci_permissions" {
     resources = [aws_iam_role.network_dns_ci[each.key].arn]
   }
 
+  # --- 04-detection (roadmap step 9) ----------------------------------------
+
+  # The hop into security (security-access.tf), only into the matching role.
+  statement {
+    sid       = "AssumeSecurityDetectRole"
+    actions   = ["sts:AssumeRole"]
+    resources = [aws_iam_role.security_detect_ci[each.key].arn]
+  }
+
   # --- State in log-archive (ADR 0009) --------------------------------------
 
   # The backend's hop to the state bucket (state-log-archive.tf), again only

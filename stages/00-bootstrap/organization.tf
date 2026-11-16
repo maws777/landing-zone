@@ -23,6 +23,10 @@ resource "aws_organizations_organization" "this" {
     "sso.amazonaws.com",        # IAM Identity Center - already enabled, must not be removed
     "cloudtrail.amazonaws.com", # org-wide CloudTrail trail, roadmap step 4
     "iam.amazonaws.com",        # centralized root access, roadmap step 3 (root-access.tf)
+    # Service-managed StackSets (roadmap step 9): deploy the detection pieces
+    # into every member account, new ones included, without
+    # OrganizationAccountAccessRole (locked, ADR 0010).
+    "member.org.stacksets.cloudformation.amazonaws.com",
   ]
 
   # Same whole-list semantics. SCPs are the preventive half of the guardrails.
