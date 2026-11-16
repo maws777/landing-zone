@@ -91,6 +91,12 @@ variable "staging_profile" {
   default     = "staging-admin"
 }
 
+variable "security_profile" {
+  description = "AWS CLI profile the security provider signs in with (versions.tf): Identity Center admin in security."
+  type        = string
+  default     = "security-admin"
+}
+
 # The app repository (ADR 0012, 0013). Like the IDs above, public on
 # api.github.com and part of the immutable OIDC subject.
 variable "mcp_repository" {

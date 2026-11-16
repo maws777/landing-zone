@@ -1,6 +1,6 @@
 # Step 9: detection and auto-remediation (design)
 
-Status: draft, 2026-11-16. Decisions marked **(to decide)** wait for Michael.
+Status: agreed 2026-11-16. Michael took the three recommendations: IAM broad grants alert only, SNS email for security alerts (+ findings table), StackSet managed from management (`00-bootstrap`).
 
 The preventive half of the guardrails is done (SCPs, steps 2, 3, 4, 6). This
 is the detective half: notice a risky change shortly after it happens in any
@@ -12,7 +12,7 @@ member account, undo it when that's safe, and tell me.
 |---|---|---|---|
 | 1 | S3 bucket made public: Block Public Access removed, or a policy/ACL granting `*` | `s3:DeletePublicAccessBlock`, `PutBucketPublicAccessBlock`, `PutBucketPolicy`, `PutBucketAcl` | Put Block Public Access back on the bucket |
 | 2 | Security group open to the world on SSH/RDP | `ec2:AuthorizeSecurityGroupIngress`, `ModifySecurityGroupRules` with `0.0.0.0/0` or `::/0` on 22 or 3389 | Revoke that one rule |
-| 3 | Overly broad IAM grant: a policy with `"Action": "*"` on `"Resource": "*"`, or `AdministratorAccess` attached | `iam:PutRolePolicy`, `PutUserPolicy`, `AttachRolePolicy`, `AttachUserPolicy`, `CreatePolicyVersion` | **Alert only** in v1 (to decide: auto-detach?) |
+| 3 | Overly broad IAM grant: a policy with `"Action": "*"` on `"Resource": "*"`, or `AdministratorAccess` attached | `iam:PutRolePolicy`, `PutUserPolicy`, `AttachRolePolicy`, `AttachUserPolicy`, `CreatePolicyVersion` | **Alert only** (decided: a wrong IAM revert can lock me out) |
 | 4 | Guardrail tampering (management account) | `organizations:DetachPolicy`, `DeletePolicy`, `UpdatePolicy`; `cloudtrail:StopLogging` | **Alert only**: the break-glass path of ADR 0010 *is* a DetachPolicy, it must stay possible |
 
 Why 3 and 4 only alert: reverting IAM or SCP changes automatically can lock
@@ -41,7 +41,7 @@ member account (any region it acts in)          security account (eu-west-3)
   the OUs with **automatic deployment**: a new account gets them without a
   Terraform change, and StackSets doesn't need `OrganizationAccountAccessRole`
   (locked, ADR 0010). Terraform manages the StackSet itself from
-  `00-bootstrap` (management, local) or a delegated admin (to decide).
+  `00-bootstrap` (management, local): decided, no delegated administrator.
 - **`lz-remediation` role**: trusted only by the `lz-remediate` Lambda's role
   ARN; may do exactly the revert actions (`s3:PutBucketPublicAccessBlock`,
   `ec2:RevokeSecurityGroupIngress`, reads to confirm), nothing else.
@@ -72,7 +72,7 @@ member account (any region it acts in)          security account (eu-west-3)
    the SCPs blocks the risky changes themselves (that's the point of
    detection), so no relaxed variant is needed for the demo.
 
-## 4. Alerts (to decide)
+## 4. Alerts (decided: C + A)
 
 Decided earlier: no email/SNS (phase 3 of the app). Options:
 
@@ -98,10 +98,12 @@ month free.
 ## 6. Order of work
 
 1. `00-bootstrap`: trusted access for StackSets, CI roles in `security`
-   (same two-key pattern as `network-access.tf`), the management forwarding
-   rule.
+   (same two-key pattern as `network-access.tf`) and the boundary every
+   role 04-detection creates must carry (same idea as ADR 0013).
 2. `01-guardrails`: the us-east-1 exception for the StackSet role, Sandbox
    OU first (ADR 0006 rollout), simulator checks.
 3. New stage `04-detection` (CI, in `security`): bus, Lambda, findings
    table, SNS topic, StackSet with the per-account template.
-4. Demo in sandbox for each rule; ADR 0016.
+4. `00-bootstrap`: the StackSet (per-account template) and the management
+   account's own forwarding rule, once the bus exists.
+5. Demo in sandbox for each rule; ADR 0016.
