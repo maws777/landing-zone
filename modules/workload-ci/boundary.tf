@@ -70,14 +70,23 @@ data "aws_iam_policy_document" "boundary" {
   }
 
   # The dashboard's AI summaries (roadmap step 8). Which regions it reaches is
-  # still decided by the region SCP, which needs its Bedrock exception first.
+  # decided by the region SCP (ADR 0014).
+  #
+  # Haiku only: the ceiling is about cost as much as access. With "*" a role
+  # under this boundary could call the most expensive model on Bedrock. A call
+  # through an inference profile is authorized twice, on the profile (in this
+  # account, home region) and on the foundation model in whichever region the
+  # profile routes to (no account in that ARN), so both are listed.
   statement {
     sid = "Bedrock"
     actions = [
       "bedrock:InvokeModel",
       "bedrock:InvokeModelWithResponseStream",
     ]
-    resources = ["*"]
+    resources = [
+      "arn:aws:bedrock:${var.region}:${local.account_id}:inference-profile/eu.anthropic.claude-haiku-*",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-*",
+    ]
   }
 }
 
