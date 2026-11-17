@@ -113,6 +113,7 @@ locals {
     "sso:*",
     "sts:*",
     "support:*",
+    "support-console:*", # Support Center console (not in AWS's list as of 2026-09-30): without it, member accounts can't open a support case
     "supportapp:*",
     "supportplans:*",
     "sustainability:*",
