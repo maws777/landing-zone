@@ -59,4 +59,11 @@ variable "alert_email" {
   EOT
   type        = string
   sensitive   = true
+
+  # A missing secret reaches Terraform as "", not as unset: fail the plan
+  # instead of subscribing nobody.
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be an email address (is the ALERT_EMAIL secret set?)."
+  }
 }
