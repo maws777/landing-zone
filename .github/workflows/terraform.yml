@@ -46,6 +46,14 @@ env:
   LOG_ARCHIVE_ACCOUNT_ID: ${{ vars.LOG_ARCHIVE_ACCOUNT_ID }}
 
 jobs:
+  # The detection Lambda's classifier (04-detection): stdlib unittest, no AWS.
+  detection-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -m unittest discover -v -s stages/04-detection/tests
+
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -56,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stage: [01-guardrails, 02-logging, 03-dns]
+        stage: [01-guardrails, 02-logging, 03-dns, 04-detection]
     permissions:
       contents: read
       id-token: write
@@ -67,6 +75,10 @@ jobs:
       TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-plan
       # Same for 03-dns, into network (00-bootstrap/network-access.tf).
       TF_VAR_network_role_name: ci/landing-zone-ci-dns-plan
+      # And 04-detection, into security (00-bootstrap/security-access.tf).
+      TF_VAR_security_role_name: ci/landing-zone-ci-detect-plan
+      # 04-detection's alert address: a secret, the repository is public.
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
       # The role the backend assumes in log-archive to read and lock state.
       # Same rule: plan can only reach the read-only one.
       TF_STATE_ROLE: ci/landing-zone-ci-state-plan
@@ -149,13 +161,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stage: [02-logging, 01-guardrails, 03-dns]
+        stage: [02-logging, 01-guardrails, 03-dns, 04-detection]
     permissions:
       contents: read
       id-token: write
     env:
       TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-plan
       TF_VAR_network_role_name: ci/landing-zone-ci-dns-plan
+      TF_VAR_security_role_name: ci/landing-zone-ci-detect-plan
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
       TF_STATE_ROLE: ci/landing-zone-ci-state-plan
     defaults:
       run:
@@ -243,7 +257,7 @@ jobs:
       fail-fast: true
       max-parallel: 1
       matrix:
-        stage: [02-logging, 01-guardrails, 03-dns]
+        stage: [02-logging, 01-guardrails, 03-dns, 04-detection]
     # Never two applies of the same stage at once; queue rather than cancel.
     concurrency:
       group: terraform-apply-${{ matrix.stage }}
@@ -254,6 +268,8 @@ jobs:
     env:
       TF_VAR_log_archive_role_name: ci/landing-zone-ci-logging-apply
       TF_VAR_network_role_name: ci/landing-zone-ci-dns-apply
+      TF_VAR_security_role_name: ci/landing-zone-ci-detect-apply
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
       TF_STATE_ROLE: ci/landing-zone-ci-state-apply
     defaults:
       run:

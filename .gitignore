@@ -8,3 +8,5 @@ tfplan
 crash.log
 crash.*.log
 CLAUDE.md
+build/
+__pycache__/
