@@ -117,3 +117,18 @@ provider "aws" {
     }
   }
 }
+
+# The management account in us-east-1 (detection.tf): IAM and Organizations
+# are global services whose CloudTrail events reach EventBridge only there.
+# Management isn't bound by SCPs, so no exception is needed for it.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      project      = "landing-zone"
+      "managed-by" = "terraform"
+    }
+  }
+}
