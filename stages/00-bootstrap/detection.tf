@@ -83,6 +83,13 @@ resource "aws_cloudformation_stack_set_instance" "detection_home" {
   deployment_targets {
     organizational_unit_ids = [aws_organizations_organization.this.roots[0].id]
   }
+
+  lifecycle {
+    # Imported after an interrupted first apply (2026-11-18): import doesn't
+    # read deployment_targets back, and a change there forces replacement
+    # (deleting the six stacks). The target really is the root, as above.
+    ignore_changes = [deployment_targets]
+  }
 }
 
 resource "aws_cloudformation_stack_set_instance" "detection_us_east_1" {
