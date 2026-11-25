@@ -118,6 +118,10 @@ data "aws_iam_policy_document" "ci" {
       "cloudfront:List*",
       "scheduler:Get*",
       "scheduler:List*",
+      "sns:GetSubscriptionAttributes",
+      "sns:GetTopicAttributes",
+      "sns:ListSubscriptionsByTopic",
+      "sns:ListTagsForResource",
     ]
     resources = ["*"]
   }
@@ -316,6 +320,28 @@ data "aws_iam_policy_document" "ci" {
         "arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:mcp-*",
         "arn:aws:cloudwatch::${local.account_id}:dashboard/mcp-*",
       ]
+    }
+  }
+
+  # Where the alarms send (step 10, design 10-observability: SNS email). The
+  # topic and its email subscription; the topic policy lets CloudWatch publish.
+  # Not sns:Publish: the pipeline sets up the channel, it doesn't send on it.
+  # Only mcp-* names, so the landing zone's own topics (lz-security-alerts in
+  # security) stay out of reach.
+  dynamic "statement" {
+    for_each = each.key == "apply" ? [1] : []
+    content {
+      sid = "AppAlertTopics"
+      actions = [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:SetTopicAttributes",
+        "sns:Subscribe",
+        "sns:TagResource",
+        "sns:Unsubscribe",
+        "sns:UntagResource",
+      ]
+      resources = ["arn:aws:sns:${var.region}:${local.account_id}:mcp-*"]
     }
   }
 
