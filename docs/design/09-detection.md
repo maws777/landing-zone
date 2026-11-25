@@ -1,6 +1,6 @@
 # Step 9: detection and auto-remediation (design)
 
-Status: agreed 2026-11-16. Michael took the three recommendations: IAM broad grants alert only, SNS email for security alerts (+ findings table), StackSet managed from management (`00-bootstrap`).
+Status: **built and demonstrated 2026-11-25** (results in ADR 0016). Agreed 2026-11-16. Michael took the three recommendations: IAM broad grants alert only, SNS email for security alerts (+ findings table), StackSet managed from management (`00-bootstrap`).
 
 The preventive half of the guardrails is done (SCPs, steps 2, 3, 4, 6). This
 is the detective half: notice a risky change shortly after it happens in any

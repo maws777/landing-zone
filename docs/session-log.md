@@ -5,106 +5,123 @@ re-deriving where things stood. Newest session first.
 
 ---
 
-## Resume here (updated 2026-11-06)
+## Resume here (updated 2026-11-25)
 
-Read this block first; the entries below have the detail if needed.
+Read this block first; the entries below have the detail if needed. The
+roadmap with every step's outcome is in `CLAUDE.md` (tracked since PR #32).
 
-**State of the world: roadmap steps 1 to 7 done (landing zone ready for the app).** CI/CD (1),
-SCPs (2), root access (3), logging (4, org trail into the Object Lock bucket in
-log-archive), Terraform state in log-archive (5, ADR 0009) and, since
-2026-11-06, `OrganizationAccountAccessRole` locked + read-only access (6,
-ADR 0010).
+**State of the world: roadmap steps 1 to 9 done, step 10 (observability)
+in progress.** Landing zone (1-7), the app in staging (8, repo
+`maws777/mcp-servers`), detection and auto-remediation (9, ADR 0016).
 
-- Organization `o-zwsk12p8wd` (root `r-tmym`), imported. Trusted access:
-  `sso` + `cloudtrail`. Feature set ALL, SCP type enabled.
-- **SCPs at the root:** `FullAWSAccess`, `baseline-protections` (deny leave
-  org, close account, long-term root credentials, `OrganizationAccountAccessRole`),
-  `region-restriction` (only `eu-west-3` + global services) and
-  `log-archive-protection`. Ours are Terraform, `01-guardrails`.
-  4 of 5 slots used. Every SCP in the org is in Terraform; the Day 0 manual
-  one is deleted.
-- 4 OUs, 6 member accounts (7 of 10 quota), each in its OU. `admins` group has
-  `AdministratorAccess` on all of them via Identity Center.
-- Terraform state in **S3 in log-archive** with native locking (ADR 0009).
-  Gitignored `backend.hcl` (same in every stage): bucket name +
-  `profile = "log-archive-admin"`. CI chains into `ci/landing-zone-ci-state-*`.
-  No state in management any more, no local state.
-- CLI profiles `<account>-admin` for all six accounts, sharing the `mteplov`
-  SSO session. One `aws sso login` covers them all.
-- Provider pinned with `allowed_account_ids`; real IDs only in gitignored files.
-- No long-lived AWS credentials anywhere on the machine.
+- Organization `o-zwsk12p8wd` (root `r-tmym`), 4 OUs, 6 member accounts
+  (7 of 10 quota). Trusted access: `sso`, `cloudtrail`, StackSets.
+- **SCPs at the root** (`01-guardrails`, 4 of 5 slots): `FullAWSAccess`,
+  `baseline-protections`, `region-restriction` (Paris + global services;
+  exceptions: Bedrock EU regions ADR 0014, StackSets role in us-east-1 and
+  `support-console:*` ADR 0016), `log-archive-protection`.
+- **Stages:** `00-bootstrap` (local only, ADR 0004), `01-guardrails`,
+  `02-logging`, `03-dns`, `04-detection` (CI, plan on PRs, apply on `main`
+  after approval).
+- Terraform state in S3 in log-archive (ADR 0009). Gitignored `backend.hcl`
+  (same file in every stage), `00-bootstrap/terraform.tfvars`,
+  `04-detection/terraform.tfvars`.
+- Access: Identity Center only, SSO session `mteplov`, profiles
+  `<account>-admin` / `<account>-readonly`. One `aws sso login --sso-session
+  mteplov` covers all. `OrganizationAccountAccessRole` locked (ADR 0010).
+  No long-lived AWS credentials anywhere.
+- **Detection (step 9):** every account forwards a short list of risky
+  CloudTrail events (StackSet `lz-detection-member`, eu-west-3 + us-east-1;
+  management has its own rules) to bus `lz-detection` in security. Lambda
+  `lz-remediate` reverts S3 public access and SSH/RDP open to the world,
+  alerts on broad IAM grants and SCP/CloudTrail changes. Findings in table
+  `lz-findings` (90 days), alerts by email (SNS `lz-security-alerts`).
 
 **To start a session**
 
 ```powershell
 git switch main; git pull
-aws sso login --profile management-admin
+aws sso login --sso-session mteplov
 cd stages/00-bootstrap
 $env:AWS_PROFILE = "management-admin"
 terraform init "-backend-config=backend.hcl"   # only on a fresh clone
 terraform plan    # expect: No changes
 ```
 
-- **CI/CD live (roadmap step 1):** GitHub OIDC roles in management, and a
-  workflow that plans on PRs and applies on `main` behind the `management`
-  environment. Since PR #11, a `review-plan` job shows main's plan *before*
-  the approval prompt, and `apply` refuses to run if its own plan's digest
-  differs. `00-bootstrap` stays local-only (ADR 0004). New CI-managed
-  stages need their permissions added in `ci-identity.tf` first (local apply).
-
-**Roadmap step 3 done (ADR 0007):** centralized root access on, all six
-member roots without credentials, password recovery refused (tested).
-Audit any time with `scripts/root-credentials.ps1 -Action Audit`.
-
-**Roadmap step 6 done (ADR 0010).** `OrganizationAccountAccessRole` can be
-assumed but can do nothing in any member account (statement in
-`baseline-protections`; break glass = detach it from management). Nothing in
-the repo uses the role: bootstrap and local runs use Identity Center profiles
-(`log-archive-admin`, `network-admin`). `ViewOnlyAccess` permission set
-(`ViewOnlyAccess` + `SecurityAudit`) + `readers` group on all 7 accounts,
-`<account>-readonly` CLI profiles; use those by default.
-
-**Roadmap step 7 done (DNS half).** Stage `03-dns` (CI): public hosted zone
-`lab.michaelteplov.com` in network ($0.50/month), delegated by four `lab` NS
-records at GoDaddy. CI reaches network through
-`ci/landing-zone-ci-dns-{plan,apply}` (`00-bootstrap/network-access.tf`).
-Name servers: `terraform output name_servers` in `stages/03-dns`.
+**Checking detection:** `aws dynamodb scan --table-name lz-findings
+--profile security-readonly`; Lambda logs in `/aws/lambda/lz-remediate`
+(security). In Git Bash, prefix `MSYS_NO_PATHCONV=1` or the log group path
+gets mangled.
 
 **Open, not blocking:** the `AssumeRoot` + `S3UnlockBucketPolicy` question
-(ADR 0008). Not tested on purpose; see the 2026-10-23 (closing) entry.
+(ADR 0008), the VPC half of step 7 (waits for the optional ECS stack), prod
+for the app (phase 5), whether to keep the `Co-Authored-By: Claude`
+trailer on commits (kept for now).
 
-**Checking the logs:** `validate-logs` from `log-archive-admin` with
-`--account-id` (see `stages/02-logging/README.md`).
+**Checklist before writing any SCP:** `list-policies-for-target` on the
+root, every OU *and every account*.
 
-**In progress: roadmap step 8 (the app).** Platform side for staging done
-(ADR 0012, 0013): repo `maws777/mcp-servers` (public, `staging` environment,
-`main` only, no reviewer), and in staging `ci/mcp-ci-{plan,apply}` (OIDC in
-the staging account itself), boundary `platform/mcp-workload-boundary`, state
-bucket `mcp-tfstate-<staging id>`; in network `ci/mcp-dns-staging-{plan,apply}`
-limited to `*.staging.lab.michaelteplov.com`. `terraform output mcp_staging`
-in 00-bootstrap has the ARNs. Next: spike 1 in `mcp-servers` (claude.ai →
-Cognito → Lambda validates the token), then spike 2 (iPhone PWA). Prod is a
-second module block in `workloads.tf` once staging works. The VPC half of
-step 7 waits for the optional ECS stack.
-
-**Checklist before writing any SCP:** `list-policies-for-target` on the root,
-every OU *and every account*.
+**Checklist before adding a CloudTrail event name to a rule:** look it up
+in a real event (`aws cloudtrail lookup-events`). The API name and the
+logged name can differ (`DeletePublicAccessBlock` is logged as
+`DeleteBucketPublicAccessBlock`).
 
 **Gotchas learned**
 
-- PowerShell splits unquoted `-flag=a.b` at the dot → quote it. Applies to
-  `-target=`, `-out=`, `-backend-config=`, anything with a dot in the value.
+- PowerShell splits unquoted `-flag=a.b` at the dot → quote it.
 - A command that `cd`s leaves the shell there; run git from the repo root.
 - The Organizations quota is only readable in `us-east-1`.
-- Plan files contain account details in plaintext; `*.tfplan` is gitignored,
-  delete after apply anyway.
+- Plan files contain account details in plaintext; `*.tfplan` is
+  gitignored, delete after apply anyway.
+- SNS email subscriptions expire if not confirmed within 3 days, silently.
+  After any apply that creates one, click the link the same day.
+- Windows checkouts: `.gitattributes` forces LF, otherwise a local plan of
+  `04-detection` wants to redeploy the Lambda (different zip hash).
 
-**Open, not blocking:** whether to keep the `Co-Authored-By: Claude` trailer on
-commits. Keeping it for now; if dropped, rewrite history + force-push `main`.
+---
 
-**App decided (2026-10-16): calorie-tracking MCP**, replacing the parked
-note-taking idea. See the 2026-10-16 entry below and CLAUDE.md roadmap step 8.
-Don't start until the landing zone is done.
+## 2026-11-25 — new PC, step 9 finished: demo, two bugs found and fixed
+
+### Done
+
+- **New machine set up.** Both repos cloned into `food_log/`. Terraform
+  1.17.2 from releases.hashicorp.com (SHA256 checked) into `~/bin`, no
+  winget on this PC. `~/.aws/config` rebuilt: SSO session `mteplov`
+  (portal URL from the Identity Center invitation email) and the
+  admin/readonly profiles of all seven accounts. `backend.hcl` and
+  `terraform.tfvars` rebuilt from Organizations and Identity Center. A
+  plan of `00-bootstrap` on the lot 4 branch said *No changes*: the
+  2026-11-18 apply had finished, only the merge was missing (PR #28).
+- **Verified live:** 12 StackSet instances CURRENT (6 accounts × 2
+  regions), management rules in both regions, bus, Lambda, table.
+- **Demo of every rule** (results table in ADR 0016): S3 Block Public
+  Access removed → back in 25 s; weakened → back in seconds; SSH from
+  0.0.0.0/0 → revoked in 17 s; AdministratorAccess on a test role → alert
+  only; `DeletePolicy` on an unattached throwaway SCP in management →
+  alert only. Emails received for the alerts after the subscription was
+  confirmed. All test resources deleted (buckets, security group, role,
+  SCP).
+
+### Found and fixed
+
+- **"Block Public Access removed" could never fire.** CloudTrail logs the
+  call as `DeleteBucketPublicAccessBlock`; every list used the API name
+  `DeletePublicAccessBlock`. The tests used the same wrong name, so they
+  passed. Fixed in PR #33 (bus rule by CI, StackSet + management rules by
+  a local apply of `00-bootstrap`: 3 in-place changes), then demoed again.
+- **Alerts went nowhere for a week.** The email subscription from
+  2026-11-17 was never confirmed and AWS deleted it after 3 days. Found
+  because the topic listed no subscriber at all. Recreated with a
+  targeted local apply of `04-detection`, confirmed 2026-11-25.
+- **Windows line endings.** `core.autocrlf=true` made the local Lambda zip
+  differ from CI's, so a local plan wanted to redeploy unchanged code. I
+  only applied the subscription (`-target`), and PR #33 adds
+  `.gitattributes` (`eol=lf`), as in mcp-servers.
+
+### Not done
+
+- The old `~/.aws/credentials` with an invalid long-lived `AKIA` key under
+  `[default]` is still on the PC: dead (AWS rejects it), to delete.
 
 ---
 
