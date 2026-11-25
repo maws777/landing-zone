@@ -1,6 +1,6 @@
 # Step 10: observability (design)
 
-Status: draft, 2026-11-25. Three decisions open (section 7).
+Status: draft, 2026-11-25. Decision 1 taken (alerts by SNS email, never through the app); decisions 2 and 3 open (section 7).
 
 Roadmap step 10 says: CloudWatch dashboards and alarms, an SLO, a k6 load
 test with cost results. This is the plan for doing that on what was actually
@@ -13,7 +13,7 @@ built, which drifted from the original plan in ways that change the design
 |---|---|---|
 | Staging, then prod | Only staging, used every day from claude.ai and the iPhone | Staging *is* production here. The SLO and alarms go on staging; a prod copy inherits them when it exists. |
 | Container image, optional Fargate stack | Zip packages, no container, Fargate undecided | The load test targets the serverless API only. |
-| App alarms by iPhone web push (phase 4c), no email | Phase 4c not built. Step 9 accepted **SNS email for security alerts** (ADR 0016) | Email is now an accepted channel for alerts. Decision 1. |
+| App alarms by iPhone web push (phase 4c), no email | Phase 4c not built. Step 9 accepted **SNS email for security alerts** (ADR 0016) | Decided: alarms go by **SNS email**, permanently. The food app is not an alerting app, so phase 4c no longer carries alarms. |
 | Rate limiting as a defence | API Gateway throttle **3 rps, burst 10**, summaries capped at 20/user/day | A load test mostly measures the throttle. That's a result worth showing (the cost-abuse defence works), not a problem. Decision 2. |
 | Haiku-class summary model | Qwen3 235B (ADR 0017), and an eval of the summary in mcp-servers | Model quality is now measurable. Decision 3. |
 | Budget created by hand on Day 0, "to Terraform later" | Still manual | Moves to Terraform here, as the cost alarm. |
@@ -127,13 +127,13 @@ into `ALARM` once with `set-alarm-state` to see the notification arrive).
 
 ## 7. Decisions
 
-1. **Alert channel.**
-   - **A. SNS email now** (recommended): the same channel step 9 accepted,
-     free, works today. Web push (phase 4c) can replace the email later by
-     changing the alarm's target, not the alarms.
-   - B. Build phase 4c (web push) first: what the app design wanted, but it's
-     a phase of its own (service worker, VAPID key in SSM, a new
-     `food:devices` scope, a landing-zone PR) and it delays step 10.
+1. **Alert channel. Decided 2026-11-25: SNS email**, and it stays that way.
+   Michael: email is the traditional channel for operational alarms, and the
+   food app shouldn't become the alarms app. So the alarm part of phase 4c
+   (alarm → push Lambda → iPhone) is dropped; web push, if built, is only
+   for the app's own nudges. One SNS topic per environment, email
+   subscription (AWS sends a confirmation link first: click it, or nothing
+   arrives, as step 9 found).
 2. **Load test throttle.**
    - **A. Under the production throttle** (recommended): nothing changes in
      the live config; the results show the latency at normal use and the
