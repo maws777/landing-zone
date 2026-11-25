@@ -80,9 +80,11 @@ data "aws_iam_policy_document" "boundary" {
   #   profile is authorized twice, on the profile (in this account, home
   #   region) and on the foundation model in whichever region the profile
   #   routes to (no account in that ARN), so both are listed.
-  # - DeepSeek V3.2, on demand in Stockholm. Open weights hosted by AWS in
-  #   that region: the prompt stays in the EU and never reaches DeepSeek.
-  #   Interim model while the account's Haiku 5.5 quota is 0 (ADR 0015).
+  # - Qwen3 235B, on demand in Stockholm: the summary model, chosen by eval
+  #   (ADR 0017). Open weights hosted by AWS in that region: the prompt stays
+  #   in the EU and never reaches the model's publisher.
+  # - DeepSeek V3.2, same region: the previous model (ADR 0015), kept so the
+  #   app can switch back without a landing-zone change.
   statement {
     sid = "Bedrock"
     actions = [
@@ -92,6 +94,7 @@ data "aws_iam_policy_document" "boundary" {
     resources = [
       "arn:aws:bedrock:${var.region}:${local.account_id}:inference-profile/eu.anthropic.claude-haiku-*",
       "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-*",
+      "arn:aws:bedrock:eu-north-1::foundation-model/qwen.qwen3-235b-a22b-2507-v1:0",
       "arn:aws:bedrock:eu-north-1::foundation-model/deepseek.v3.2",
     ]
   }
