@@ -42,7 +42,7 @@ resource "aws_cloudwatch_event_bus_policy" "detection" {
 locals {
   watched_events = {
     "aws.s3" = [
-      "DeletePublicAccessBlock",
+      "DeleteBucketPublicAccessBlock",
       "PutBucketPublicAccessBlock",
       "PutBucketPolicy",
       "PutBucketAcl",

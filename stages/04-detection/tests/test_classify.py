@@ -31,7 +31,7 @@ def ev(source, name, params=None, resp=None, identity=ADMIN, error=None):
 
 class S3(unittest.TestCase):
     def test_block_public_access_removed_is_reverted(self):
-        f = classify(ev("aws.s3", "DeletePublicAccessBlock", {"bucketName": "b"}))
+        f = classify(ev("aws.s3", "DeleteBucketPublicAccessBlock", {"bucketName": "b"}))
         self.assertEqual((f.kind, f.action, f.revert), ("s3-public", "revert", {"bucket": "b"}))
 
     def test_weakened_block_is_reverted_full_block_is_not(self):
@@ -97,9 +97,9 @@ class Guards(unittest.TestCase):
         self.assertEqual(classify(ev("aws.cloudtrail", "StopLogging", {"name": "t"})).action, "alert")
 
     def test_failed_calls_and_own_reverts_are_ignored(self):
-        self.assertIsNone(classify(ev("aws.s3", "DeletePublicAccessBlock", {"bucketName": "b"}, error="AccessDenied")))
+        self.assertIsNone(classify(ev("aws.s3", "DeleteBucketPublicAccessBlock", {"bucketName": "b"}, error="AccessDenied")))
         own = {"type": "AssumedRole", "arn": "arn:aws:sts::111111111111:assumed-role/lz-remediation/lz-remediate", "sessionContext": {"sessionIssuer": {"arn": "arn:aws:iam::111111111111:role/lz/lz-remediation"}}}
-        self.assertIsNone(classify(ev("aws.s3", "DeletePublicAccessBlock", {"bucketName": "b"}, identity=own)))
+        self.assertIsNone(classify(ev("aws.s3", "DeleteBucketPublicAccessBlock", {"bucketName": "b"}, identity=own)))
 
 
 if __name__ == "__main__":

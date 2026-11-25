@@ -94,7 +94,7 @@ Resources:
         source: ["aws.s3", "aws.ec2", "aws.iam", "aws.cloudtrail"]
         detail:
           eventName:
-            - DeletePublicAccessBlock
+            - DeleteBucketPublicAccessBlock
             - PutBucketPublicAccessBlock
             - PutBucketPolicy
             - PutBucketAcl

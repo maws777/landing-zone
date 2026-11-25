@@ -1,0 +1,4 @@
+# Same bytes on Windows and on the Linux CI runners: the Lambda zip's hash
+# (and so Terraform's plan) must not depend on who built it. A CRLF
+# checkout made a local 04-detection plan want to redeploy unchanged code.
+* text=auto eol=lf
