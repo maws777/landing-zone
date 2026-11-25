@@ -74,7 +74,7 @@ def _s3(name: str, p: dict) -> Finding | None:
     if not bucket:
         return None
     revert = {"bucket": bucket}
-    if name == "DeletePublicAccessBlock":
+    if name == "DeleteBucketPublicAccessBlock":
         return Finding("s3-public", f"Block Public Access removed on {bucket}", "revert", revert)
     if name == "PutBucketPublicAccessBlock":
         conf = p.get("PublicAccessBlockConfiguration") or {}

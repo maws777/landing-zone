@@ -10,7 +10,7 @@ member account, undo it when that's safe, and tell me.
 
 | # | Change | Event (CloudTrail) | Action |
 |---|---|---|---|
-| 1 | S3 bucket made public: Block Public Access removed, or a policy/ACL granting `*` | `s3:DeletePublicAccessBlock`, `PutBucketPublicAccessBlock`, `PutBucketPolicy`, `PutBucketAcl` | Put Block Public Access back on the bucket |
+| 1 | S3 bucket made public: Block Public Access removed, or a policy/ACL granting `*` | `DeleteBucketPublicAccessBlock` (the API call is `DeletePublicAccessBlock`; CloudTrail logs it under this name), `PutBucketPublicAccessBlock`, `PutBucketPolicy`, `PutBucketAcl` | Put Block Public Access back on the bucket |
 | 2 | Security group open to the world on SSH/RDP | `ec2:AuthorizeSecurityGroupIngress`, `ModifySecurityGroupRules` with `0.0.0.0/0` or `::/0` on 22 or 3389 | Revoke that one rule |
 | 3 | Overly broad IAM grant: a policy with `"Action": "*"` on `"Resource": "*"`, or `AdministratorAccess` attached | `iam:PutRolePolicy`, `PutUserPolicy`, `AttachRolePolicy`, `AttachUserPolicy`, `CreatePolicyVersion` | **Alert only** (decided: a wrong IAM revert can lock me out) |
 | 4 | Guardrail tampering (management account) | `organizations:DetachPolicy`, `DeletePolicy`, `UpdatePolicy`; `cloudtrail:StopLogging` | **Alert only**: the break-glass path of ADR 0010 *is* a DetachPolicy, it must stay possible |

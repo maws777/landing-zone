@@ -19,7 +19,7 @@ locals {
   remediate_role_arn = "arn:aws:iam::${local.security_account_id}:role/lz/lz-remediate"
   detection_regions  = [var.region, "us-east-1"]
   detection_event_names = [
-    "DeletePublicAccessBlock",
+    "DeleteBucketPublicAccessBlock",
     "PutBucketPublicAccessBlock",
     "PutBucketPolicy",
     "PutBucketAcl",
