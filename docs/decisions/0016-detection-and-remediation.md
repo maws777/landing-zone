@@ -2,7 +2,7 @@
 
 Date: 2026-11-16
 
-Status: accepted (design: `docs/design/09-detection.md`)
+Status: accepted, built and demonstrated 2026-11-25 (design: `docs/design/09-detection.md`)
 
 ## Context
 
@@ -65,3 +65,36 @@ Costs and risks:
   (closed, not open).
 - Email is one more channel to keep tidy; revisit when the app's web push
   exists.
+
+## Results (demo in sandbox, 2026-11-25)
+
+Each rule triggered once for real, in sandbox (eu-west-3) or management,
+then the test resource deleted. Times are from the change to the revert,
+measured by polling.
+
+| Rule | Trigger | Result |
+|---|---|---|
+| S3, Block Public Access removed | `DeletePublicAccessBlock` on an empty test bucket | Put back after **25 s**, finding `s3-public / reverted`, email |
+| S3, Block Public Access weakened | `PutBucketPublicAccessBlock` with `BlockPublicPolicy=false` | Put back within seconds, `s3-public / reverted` |
+| SSH open to the world | port 22 from `0.0.0.0/0` on a test security group | Rule revoked after **17 s**, `sg-open-admin-port / reverted` |
+| IAM broad grant | `AdministratorAccess` attached to a test role | `iam-broad-grant / alerted`, email, role untouched until deleted by hand |
+| Guardrail change (management) | `DeletePolicy` on a throwaway SCP attached to nothing | `guardrail-change / alerted`, email; no real SCP touched |
+
+The Lambda ignored its own reverts (the follow-up `PutBucketPublicAccessBlock`
+shows as `ignored` in its log), so no loop.
+
+What the demo found, both fixed:
+
+- **Wrong event name (PR #33).** The S3 call `DeletePublicAccessBlock` is
+  logged by CloudTrail as `DeleteBucketPublicAccessBlock`. Every list (the
+  StackSet template, management rules, bus rule, classifier and its tests)
+  used the API name, so "Block Public Access removed" could never fire. The
+  unit tests passed because they used the same wrong name: event names are
+  now checked against a real CloudTrail event before going into a list.
+- **Alert email never confirmed.** The SNS email subscription created on
+  2026-11-17 was never confirmed, and AWS deletes pending subscriptions after
+  three days: until 2026-11-25 every alert was dropped silently. Recreated
+  (targeted local apply of `04-detection`) and confirmed. A missing
+  subscription is invisible in Terraform until the next refresh; step 10's
+  `lz-remediate` alarm should also check the topic has a confirmed
+  subscriber.
