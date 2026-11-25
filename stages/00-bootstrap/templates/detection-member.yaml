@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Landing zone detection, per member account (roadmap step 9, ADR 0016).
+  Forwards risky API calls to the central lz-detection bus in the security
+  account, and gives the lz-remediate Lambda a role limited to the two
+  reverts. Deployed by a service-managed StackSet from 00-bootstrap.
+
+Parameters:
+  DetectionBusArn:
+    Type: String
+    Description: The central bus in the security account.
+  RemediateRoleArn:
+    Type: String
+    Description: The lz-remediate Lambda's role, the only principal trusted by lz-remediation.
+  HomeRegion:
+    Type: String
+    Default: eu-west-3
+
+Conditions:
+  # IAM is global: the roles are created once, by the home-region stack,
+  # which the StackSet deploys first (region order). Other regions only add
+  # their forwarding rule, which points at the role by name.
+  IsHomeRegion: !Equals [!Ref "AWS::Region", !Ref HomeRegion]
+
+Resources:
+  # Lets EventBridge put this account's matching events on the central bus.
+  ForwarderRole:
+    Type: AWS::IAM::Role
+    Condition: IsHomeRegion
+    Properties:
+      RoleName: lz-detection-forwarder
+      Path: /lz/
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: put-on-detection-bus
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Ref DetectionBusArn
+
+  # What the central Lambda may do here: exactly the two reverts, plus the
+  # reads that go with them. Trusted by that one role ARN only.
+  RemediationRole:
+    Type: AWS::IAM::Role
+    Condition: IsHomeRegion
+    Properties:
+      RoleName: lz-remediation
+      Path: /lz/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: !Ref RemediateRoleArn }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: reverts
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BlockPublicAccessBack
+                Effect: Allow
+                Action:
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:GetBucketPublicAccessBlock
+                Resource: arn:aws:s3:::*
+              - Sid: RevokeOpenIngress
+                Effect: Allow
+                Action:
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:DescribeSecurityGroupRules
+                Resource: "*"
+
+  # The default bus receives this account's CloudTrail management events.
+  # Same pattern in every region; each event only exists where it happened
+  # (IAM's in us-east-1). Kept in step with 04-detection/bus.tf.
+  ForwardRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: lz-detect-forward
+      Description: Risky API calls, forwarded to the security account (ADR 0016).
+      EventBusName: default
+      EventPattern:
+        detail-type: ["AWS API Call via CloudTrail"]
+        source: ["aws.s3", "aws.ec2", "aws.iam", "aws.cloudtrail"]
+        detail:
+          eventName:
+            - DeletePublicAccessBlock
+            - PutBucketPublicAccessBlock
+            - PutBucketPolicy
+            - PutBucketAcl
+            - AuthorizeSecurityGroupIngress
+            - ModifySecurityGroupRules
+            - AttachRolePolicy
+            - AttachUserPolicy
+            - PutRolePolicy
+            - PutUserPolicy
+            - CreatePolicyVersion
+            - CreateRole
+            - StopLogging
+            - DeleteTrail
+            - UpdateTrail
+      State: ENABLED
+      Targets:
+        - Id: detection-bus
+          Arn: !Ref DetectionBusArn
+          RoleArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/lz/lz-detection-forwarder
