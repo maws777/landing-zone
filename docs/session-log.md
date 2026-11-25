@@ -118,10 +118,8 @@ logged name can differ (`DeletePublicAccessBlock` is logged as
   only applied the subscription (`-target`), and PR #33 adds
   `.gitattributes` (`eol=lf`), as in mcp-servers.
 
-### Not done
-
-- The old `~/.aws/credentials` with an invalid long-lived `AKIA` key under
-  `[default]` is still on the PC: dead (AWS rejects it), to delete.
+- The old `~/.aws/credentials` (an invalid long-lived `AKIA` key under
+  `[default]`, rejected by AWS) deleted the same day. SSO profiles only.
 
 ---
 
